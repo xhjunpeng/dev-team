@@ -3,10 +3,15 @@ set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 skill_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
+source_only=false
+if [ "${1:-}" = "--source-only" ]; then
+    source_only=true
+    shift
+fi
 agent_dir=${1:-/Users/jumper/.codex/agents}
 runtime_skill_dir=${2:-/Users/jumper/.codex/skills/dev-team}
 
-python3 - "$skill_dir" "$agent_dir" "$runtime_skill_dir" <<'PY'
+python3 - "$skill_dir" "$agent_dir" "$runtime_skill_dir" "$source_only" <<'PY'
 from pathlib import Path
 import filecmp
 import re
@@ -16,6 +21,7 @@ import tomllib
 skill_dir = Path(sys.argv[1])
 agent_dir = Path(sys.argv[2])
 runtime_skill_dir = Path(sys.argv[3])
+source_only = sys.argv[4] == "true"
 
 required = [
     "SKILL.md",
@@ -36,11 +42,12 @@ for relative in required:
     path = skill_dir / relative
     if not path.is_file():
         raise SystemExit(f"MISSING: {path}")
-    runtime_path = runtime_skill_dir / relative
-    if not runtime_path.is_file():
-        raise SystemExit(f"RUNTIME_SKILL_MISSING: {runtime_path}")
-    if not filecmp.cmp(path, runtime_path, shallow=False):
-        raise SystemExit(f"RUNTIME_SKILL_DIFFERS: {relative}")
+    if not source_only:
+        runtime_path = runtime_skill_dir / relative
+        if not runtime_path.is_file():
+            raise SystemExit(f"RUNTIME_SKILL_MISSING: {runtime_path}")
+        if not filecmp.cmp(path, runtime_path, shallow=False):
+            raise SystemExit(f"RUNTIME_SKILL_DIFFERS: {relative}")
 
 skill_text = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
 frontmatter_match = re.match(r"\A---\n(.*?)\n---(?:\n|\Z)", skill_text, re.DOTALL)
@@ -75,9 +82,27 @@ for marker in (
     "engineering-quality.md",
     "specialist-routing.md",
     "第三次修复仍失败后硬停止",
+    "阶段职责",
+    "需求与计划就绪",
 ):
     if marker not in skill_text:
         raise SystemExit(f"SKILL_MARKER_MISSING: {marker}")
+
+dispatch_text = (skill_dir / "references/dispatch-packet.md").read_text(encoding="utf-8")
+for marker in (
+    "需求与计划就绪",
+    "使用对象或对象群：",
+    "可观察的验收标准：",
+    "唯一写入者：",
+    "交回主任务/停止条件：",
+):
+    if marker not in dispatch_text:
+        raise SystemExit(f"DISPATCH_PACKET_MARKER_MISSING: {marker}")
+
+recovery_text = (skill_dir / "references/recovery.md").read_text(encoding="utf-8")
+for marker in ("项目勘察员的故障诊断模式", "可靠复现信号：", "可证伪假设及预测：", "交回主任务的条件："):
+    if marker not in recovery_text:
+        raise SystemExit(f"RECOVERY_MARKER_MISSING: {marker}")
 
 specialist_text = (skill_dir / "references/specialist-routing.md").read_text(encoding="utf-8")
 for marker in (
@@ -90,7 +115,7 @@ for marker in (
         raise SystemExit(f"SPECIALIST_ROUTING_MARKER_MISSING: {marker}")
 
 scenario_text = (skill_dir / "tests/scenarios.md").read_text(encoding="utf-8")
-for marker in ("明确机械小修", "未知根因 Bug", "普通功能实现", "项目未采用 Matt 体系"):
+for marker in ("明确机械小修", "未知根因 Bug", "普通功能实现", "项目未采用 Matt 体系", "需求与计划就绪", "只读故障诊断", "测试与验收分工"):
     if marker not in scenario_text:
         raise SystemExit(f"SPECIALIST_SCENARIO_MISSING: {marker}")
 
@@ -102,8 +127,8 @@ expected = {
 }
 for filename, values in expected.items():
     template = skill_dir / "templates" / "agents" / filename
-    installed = agent_dir / filename
-    for path in (template, installed):
+    paths = (template,) if source_only else (template, agent_dir / filename)
+    for path in paths:
         if not path.is_file():
             raise SystemExit(f"AGENT_MISSING: {path}")
         data = tomllib.loads(path.read_text(encoding="utf-8"))
@@ -120,15 +145,15 @@ for filename, values in expected.items():
             if marker not in instructions:
                 raise SystemExit(f"AGENT_GATE_MISSING: {path}: {marker}")
         role_markers = {
-            "team-explorer.toml": ("专项 Skill", "不安装、启用或模拟"),
-            "team-developer.toml": ("最小可维护实现", "技术债变化", "专项 Skill", "Matt `implement`"),
-            "team-ui-maker.toml": ("最小可维护实现", "后置覆盖", "技术债变化", "专项 Skill", "`prototype`"),
-            "team-reviewer.toml": ("功能结果", "实现质量", "新增技术债", "专项 Skill", "`code-review`"),
+            "team-explorer.toml": ("专项 Skill", "不安装、启用或模拟", "recovery.md", "故障诊断模式", "规定诊断记录"),
+            "team-developer.toml": ("最小可维护实现", "技术债变化", "专项 Skill", "Matt `implement`", "自动化测试和功能自检"),
+            "team-ui-maker.toml": ("最小可维护实现", "后置覆盖", "技术债变化", "专项 Skill", "`prototype`", "交互、响应式和浏览器自检"),
+            "team-reviewer.toml": ("功能结果", "实现质量", "新增技术债", "专项 Skill", "`code-review`", "独立核查关键测试、功能或浏览器证据"),
         }
         for marker in role_markers.get(filename, ()):
             if marker not in instructions:
                 raise SystemExit(f"AGENT_QUALITY_GATE_MISSING: {path}: {marker}")
-    if not filecmp.cmp(template, installed, shallow=False):
+    if not source_only and not filecmp.cmp(template, agent_dir / filename, shallow=False):
         raise SystemExit(f"AGENT_COPY_DIFFERS: {filename}")
 
 print("VERIFY_RESULT=PASS")
