@@ -22,6 +22,7 @@ required = [
     "references/glossary.md",
     "references/project-discovery.md",
     "references/engineering-quality.md",
+    "references/specialist-routing.md",
     "references/git-lifecycle.md",
     "references/candidate-ledger.md",
     "references/routing.md",
@@ -72,10 +73,26 @@ for marker in (
     "disable-model-invocation: true",
     "快速、标准或严格路径",
     "engineering-quality.md",
+    "specialist-routing.md",
     "第三次修复仍失败后硬停止",
 ):
     if marker not in skill_text:
         raise SystemExit(f"SKILL_MARKER_MISSING: {marker}")
+
+specialist_text = (skill_dir / "references/specialist-routing.md").read_text(encoding="utf-8")
+for marker in (
+    "每个阶段最多选择一个主要专项 Skill",
+    "$to-spec",
+    "`implement` 与开发执行员职责重复",
+    "不自动安装、启用、禁用或更新任何 Skill",
+):
+    if marker not in specialist_text:
+        raise SystemExit(f"SPECIALIST_ROUTING_MARKER_MISSING: {marker}")
+
+scenario_text = (skill_dir / "tests/scenarios.md").read_text(encoding="utf-8")
+for marker in ("明确机械小修", "未知根因 Bug", "普通功能实现", "项目未采用 Matt 体系"):
+    if marker not in scenario_text:
+        raise SystemExit(f"SPECIALIST_SCENARIO_MISSING: {marker}")
 
 expected = {
     "team-explorer.toml": ("项目勘察员", "gpt-5.6-luna", "medium", "read-only"),
@@ -103,9 +120,10 @@ for filename, values in expected.items():
             if marker not in instructions:
                 raise SystemExit(f"AGENT_GATE_MISSING: {path}: {marker}")
         role_markers = {
-            "team-developer.toml": ("最小可维护实现", "技术债变化"),
-            "team-ui-maker.toml": ("最小可维护实现", "后置覆盖", "技术债变化"),
-            "team-reviewer.toml": ("功能结果", "实现质量", "新增技术债"),
+            "team-explorer.toml": ("专项 Skill", "不安装、启用或模拟"),
+            "team-developer.toml": ("最小可维护实现", "技术债变化", "专项 Skill", "Matt `implement`"),
+            "team-ui-maker.toml": ("最小可维护实现", "后置覆盖", "技术债变化", "专项 Skill", "`prototype`"),
+            "team-reviewer.toml": ("功能结果", "实现质量", "新增技术债", "专项 Skill", "`code-review`"),
         }
         for marker in role_markers.get(filename, ()):
             if marker not in instructions:

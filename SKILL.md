@@ -15,17 +15,19 @@ disable-model-invocation: true
 - 子 Agent 不创建下一层 Agent。默认最多两个子 Agent 同时活动，同一可变目标最多一个写入者。
 - 主任务必须检查实际来源、变更、工程质量和验证结果；子 Agent 的总结不是最终验收。
 - 只读回答、查找和检查可留在主任务；项目代码、UI、测试、配置、脚本、迁移和文档的写入按路由派单。机械小修只派一个开发执行员，不额外派勘察员或独立验收员。
+- 专项 Skill 只提供当前阶段的方法，不产生授权或成为第二个协调中心；每个阶段最多一个主要专项 Skill。
 
 ## 路由
 
 1. 先读取 [routing.md](references/routing.md)，选择快速、标准或严格路径。流程可以随新证据升级，也可以降级。
 2. 任务涉及写入、运行环境或项目约束时，读取 [project-discovery.md](references/project-discovery.md)。只发现当前事实，不缓存项目专属副本。
 3. 任何代码、UI、测试、配置、脚本或迁移写入都读取 [engineering-quality.md](references/engineering-quality.md)，先确定权威实现、复用项和替换/删除项；质量门禁未通过不算完成。
-4. 任务涉及分支、worktree、候选复用或开始新业务目标时，读取 [git-lifecycle.md](references/git-lifecycle.md) 和 [candidate-ledger.md](references/candidate-ledger.md)。
-5. 需要派单时，读取 [dispatch-packet.md](references/dispatch-packet.md)；任务包不完整就留在主任务。
-6. 选择模型或思考强度时，读取 [model-policy.md](references/model-policy.md)。不要自动切换主任务模型。
-7. 涉及视觉、布局、交互、响应式、动效或组件状态时，优先读取 [ui-routing.md](references/ui-routing.md)；其 UI 专项规则优先于通用快速路径。
-8. 同一故障修复失败或没有可靠复现方式时，读取 [recovery.md](references/recovery.md)。
+4. 当前阶段可能需要需求澄清、测试、诊断、UI、架构、安全、研究、冲突处理、评审或收口方法时，读取 [specialist-routing.md](references/specialist-routing.md)；清楚任务可以明确不使用额外 Skill。
+5. 任务涉及分支、worktree、候选复用或开始新业务目标时，读取 [git-lifecycle.md](references/git-lifecycle.md) 和 [candidate-ledger.md](references/candidate-ledger.md)。
+6. 需要派单时，读取 [dispatch-packet.md](references/dispatch-packet.md)；任务包不完整就留在主任务。
+7. 选择模型或思考强度时，读取 [model-policy.md](references/model-policy.md)。不要自动切换主任务模型。
+8. 涉及视觉、布局、交互、响应式、动效或组件状态时，优先读取 [ui-routing.md](references/ui-routing.md)；其 UI 专项规则优先于通用快速路径。
+9. 同一故障修复失败或没有可靠复现方式时，读取 [recovery.md](references/recovery.md)。
 
 ## 中文角色
 
