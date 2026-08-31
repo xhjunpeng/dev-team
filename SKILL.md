@@ -24,10 +24,17 @@ disable-model-invocation: true
 3. 任何代码、UI、测试、配置、脚本或迁移写入都读取 [engineering-quality.md](references/engineering-quality.md)，先确定权威实现、复用项和替换/删除项；质量门禁未通过不算完成。
 4. 当前阶段可能需要需求澄清、测试、诊断、UI、架构、安全、研究、冲突处理、评审或收口方法时，读取 [specialist-routing.md](references/specialist-routing.md)；清楚任务可以明确不使用额外 Skill。
 5. 任务涉及分支、worktree、候选复用或开始新业务目标时，读取 [git-lifecycle.md](references/git-lifecycle.md) 和 [candidate-ledger.md](references/candidate-ledger.md)。
-6. 需要派单时，读取 [dispatch-packet.md](references/dispatch-packet.md)；任务包不完整就留在主任务。
+6. 需要派单时，读取 [dispatch-packet.md](references/dispatch-packet.md)，由主任务确认需求与计划就绪；任务包不完整就留在主任务。
 7. 选择模型或思考强度时，读取 [model-policy.md](references/model-policy.md)。不要自动切换主任务模型。
 8. 涉及视觉、布局、交互、响应式、动效或组件状态时，优先读取 [ui-routing.md](references/ui-routing.md)；其 UI 专项规则优先于通用快速路径。
 9. 同一故障修复失败或没有可靠复现方式时，读取 [recovery.md](references/recovery.md)。
+
+## 阶段职责
+
+- **主任务**始终负责需求澄清、计划、授权、候选和最终整合；子 Agent 不重新决定需求或计划。
+- **执行员**完成其唯一写入范围内的实现与自检；测试和独立验收不是新的协调角色。
+- **独立验收员**只判断稳定候选的证据；最终结论仍由主任务整合。
+- 需求与计划的具体就绪字段以 [dispatch-packet.md](references/dispatch-packet.md) 为准；故障诊断步骤以 [recovery.md](references/recovery.md) 为准。
 
 ## 中文角色
 
