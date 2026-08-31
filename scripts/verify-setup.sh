@@ -81,7 +81,6 @@ for marker in (
     "快速、标准或严格路径",
     "engineering-quality.md",
     "specialist-routing.md",
-    "第三次修复仍失败后硬停止",
     "阶段职责",
     "需求与计划就绪",
 ):
@@ -95,12 +94,28 @@ for marker in (
     "可观察的验收标准：",
     "唯一写入者：",
     "交回主任务/停止条件：",
+    "故障派单字段",
+    "写入类别：只读诊断 / 诊断工具写入 / 生产修复",
+    "恢复目标类型：否 / 诊断 / 生产修复",
+    "恢复诊断结论（生产修复才填）：",
 ):
     if marker not in dispatch_text:
         raise SystemExit(f"DISPATCH_PACKET_MARKER_MISSING: {marker}")
+for marker in ("[specialist-routing.md](specialist-routing.md)", "[recovery.md](recovery.md)"):
+    if marker not in dispatch_text:
+        raise SystemExit(f"DISPATCH_PACKET_AUTHORITY_POINTER_MISSING: {marker}")
+for marker in ("不能以 `tdd`", "恢复字段只在失败次数达到 3"):
+    if marker in dispatch_text:
+        raise SystemExit(f"DISPATCH_PACKET_PARALLEL_RULE: {marker}")
+
+glossary_text = (skill_dir / "references/glossary.md").read_text(encoding="utf-8")
+if "[recovery.md](recovery.md)" not in glossary_text:
+    raise SystemExit("GLOSSARY_RECOVERY_POINTER_MISSING")
+if "一个可证伪假设、一次有边界的代码改动" in glossary_text or "诊断工具写入不计生产修复尝试" in glossary_text:
+    raise SystemExit("GLOSSARY_PARALLEL_REPAIR_ATTEMPT_DEFINITION")
 
 recovery_text = (skill_dir / "references/recovery.md").read_text(encoding="utf-8")
-for marker in ("项目勘察员的故障诊断模式", "可靠复现信号：", "可证伪假设及预测：", "交回主任务的条件："):
+for marker in ("故障身份与稳定红色失败信号", "诊断工具写入与生产修复尝试", "诊断记录", "可靠复现信号：", "可证伪假设及预测：", "交回主任务的条件：", "第三次仍失败", "恢复目标", "不是重试入口"):
     if marker not in recovery_text:
         raise SystemExit(f"RECOVERY_MARKER_MISSING: {marker}")
 
@@ -110,12 +125,14 @@ for marker in (
     "$to-spec",
     "`implement` 与开发执行员职责重复",
     "不自动安装、启用、禁用或更新任何 Skill",
+    "故障诊断门槛",
+    "不得派发生产修复",
 ):
     if marker not in specialist_text:
         raise SystemExit(f"SPECIALIST_ROUTING_MARKER_MISSING: {marker}")
 
 scenario_text = (skill_dir / "tests/scenarios.md").read_text(encoding="utf-8")
-for marker in ("明确机械小修", "未知根因 Bug", "普通功能实现", "项目未采用 Matt 体系", "需求与计划就绪", "只读故障诊断", "测试与验收分工"):
+for marker in ("明确机械小修", "未知根因 Bug", "普通功能实现", "项目未采用 Matt 体系", "需求与计划就绪", "只读故障诊断", "测试与验收分工", "未知根因先诊断", "错误的诊断工具路由", "第三次失败后的伪装修复", "有新条件的恢复目标"):
     if marker not in scenario_text:
         raise SystemExit(f"SPECIALIST_SCENARIO_MISSING: {marker}")
 
@@ -145,14 +162,17 @@ for filename, values in expected.items():
             if marker not in instructions:
                 raise SystemExit(f"AGENT_GATE_MISSING: {path}: {marker}")
         role_markers = {
-            "team-explorer.toml": ("专项 Skill", "不安装、启用或模拟", "recovery.md", "故障诊断模式", "规定诊断记录"),
-            "team-developer.toml": ("最小可维护实现", "技术债变化", "专项 Skill", "Matt `implement`", "自动化测试和功能自检"),
-            "team-ui-maker.toml": ("最小可维护实现", "后置覆盖", "技术债变化", "专项 Skill", "`prototype`", "交互、响应式和浏览器自检"),
-            "team-reviewer.toml": ("功能结果", "实现质量", "新增技术债", "专项 Skill", "`code-review`", "独立核查关键测试、功能或浏览器证据"),
+            "team-explorer.toml": ("专项 Skill", "不安装、启用或模拟", "specialist-routing.md", "recovery.md", "完整读取 `diagnosing-bugs`", "诊断记录", "工具写入请求"),
+            "team-developer.toml": ("最小可维护实现", "技术债变化", "专项 Skill", "Matt `implement`", "自动化测试和功能自检", "specialist-routing.md", "recovery.md", "逐项核对派单字段", "拒绝写入并交回任务协调员"),
+            "team-ui-maker.toml": ("最小可维护实现", "后置覆盖", "技术债变化", "专项 Skill", "`prototype`", "交互、响应式和浏览器自检", "specialist-routing.md", "recovery.md", "逐项核对派单字段", "拒绝并交回任务协调员"),
+            "team-reviewer.toml": ("功能结果", "实现质量", "新增技术债", "专项 Skill", "`code-review`", "独立核查关键测试、功能或浏览器证据", "specialist-routing.md", "recovery.md", "按其核查派单、证据、计数、候选和恢复记录"),
         }
         for marker in role_markers.get(filename, ()):
             if marker not in instructions:
                 raise SystemExit(f"AGENT_QUALITY_GATE_MISSING: {path}: {marker}")
+        for marker in ("失败次数达到 3", "允许的 diagnosing-bugs 阶段：1–4", "恢复诊断结论"):
+            if marker in instructions:
+                raise SystemExit(f"AGENT_PARALLEL_FAULT_RULE: {path}: {marker}")
     if not source_only and not filecmp.cmp(template, agent_dir / filename, shallow=False):
         raise SystemExit(f"AGENT_COPY_DIFFERS: {filename}")
 
