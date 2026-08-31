@@ -83,6 +83,7 @@ for marker in (
     "specialist-routing.md",
     "阶段职责",
     "需求与计划就绪",
+    "连续执行授权",
 ):
     if marker not in skill_text:
         raise SystemExit(f"SKILL_MARKER_MISSING: {marker}")
@@ -107,6 +108,34 @@ for marker in ("[specialist-routing.md](specialist-routing.md)", "[recovery.md](
 for marker in ("不能以 `tdd`", "恢复字段只在失败次数达到 3"):
     if marker in dispatch_text:
         raise SystemExit(f"DISPATCH_PACKET_PARALLEL_RULE: {marker}")
+for marker in (
+    "连续执行授权",
+    "执行模式：普通 / 连续执行",
+    "执行终点：本地候选完成 / PR 可评审 / 已合并并清理 / 自定义",
+    "本次一次性授权动作：",
+    "满足条件后自动执行的动作：",
+    "自动修复与复验策略：",
+    "必须停止的情况：",
+    "明确不会执行：",
+    "进度汇报方式：只汇报 / 需要确认",
+    "授权状态：未获得 / 已获得",
+    "授权依据：",
+    "逐项显式列出",
+    "缺任一字段不得要求用户回复1",
+    "未取得授权时授权依据",
+    "取得授权时授权依据",
+    "完整的替代连续执行清单",
+    "不能用简略动作列表、摘要或“新清单”替代",
+    "缺任一字段不得请求或接受新的精确1",
+    "原授权已失效、用户的新变更请求和等待精确1",
+    "确认后更新为新的精确1",
+    "动作边界与终点预设",
+    "确认只覆盖最新的连续执行清单",
+    "没有列出的提交、推送、PR、合并或删除不能借连续授权执行",
+    "同一故障仍以 [recovery.md](recovery.md) 的熔断为准",
+):
+    if marker not in dispatch_text:
+        raise SystemExit(f"CONTINUOUS_EXECUTION_MARKER_MISSING: {marker}")
 
 glossary_text = (skill_dir / "references/glossary.md").read_text(encoding="utf-8")
 if "[recovery.md](recovery.md)" not in glossary_text:
@@ -132,7 +161,7 @@ for marker in (
         raise SystemExit(f"SPECIALIST_ROUTING_MARKER_MISSING: {marker}")
 
 scenario_text = (skill_dir / "tests/scenarios.md").read_text(encoding="utf-8")
-for marker in ("明确机械小修", "未知根因 Bug", "普通功能实现", "项目未采用 Matt 体系", "需求与计划就绪", "只读故障诊断", "测试与验收分工", "未知根因先诊断", "错误的诊断工具路由", "第三次失败后的伪装修复", "有新条件的恢复目标"):
+for marker in ("明确机械小修", "未知根因 Bug", "普通功能实现", "项目未采用 Matt 体系", "需求与计划就绪", "只读故障诊断", "测试与验收分工", "未知根因先诊断", "错误的诊断工具路由", "第三次失败后的伪装修复", "有新条件的恢复目标", "连续本地候选", "连续 PR 可评审", "连续验收回环", "未列合并", "明确条件合并与当前候选清理", "简单机械小修"):
     if marker not in scenario_text:
         raise SystemExit(f"SPECIALIST_SCENARIO_MISSING: {marker}")
 
