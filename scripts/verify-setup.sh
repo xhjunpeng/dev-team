@@ -23,6 +23,30 @@ agent_dir = Path(sys.argv[2])
 runtime_skill_dir = Path(sys.argv[3])
 source_only = sys.argv[4] == "true"
 
+skill_text = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+frontmatter_match = re.match(r"\A---\n(.*?)\n---(?:\n|\Z)", skill_text, re.DOTALL)
+if not frontmatter_match:
+    raise SystemExit("SKILL_FRONTMATTER_INVALID")
+
+frontmatter = {}
+for line in frontmatter_match.group(1).splitlines():
+    key, separator, value = line.partition(":")
+    if not separator or not key.strip() or key != key.strip():
+        raise SystemExit(f"SKILL_FRONTMATTER_LINE_INVALID: {line!r}")
+    if key in frontmatter:
+        raise SystemExit(f"SKILL_FRONTMATTER_DUPLICATE: {key}")
+    frontmatter[key] = value.strip()
+
+expected_frontmatter = {
+    "name": "dev-team",
+    "description": "手动调用的通用开发协作路由器；按任务风险选择最小团队，协调开发、UI、验证、Git 候选和安全收口。",
+    "disable-model-invocation": "true",
+}
+if frontmatter != expected_frontmatter:
+    raise SystemExit(f"SKILL_FRONTMATTER_MISMATCH: {frontmatter!r}")
+if not source_only and runtime_skill_dir.name != frontmatter["name"]:
+    raise SystemExit("RUNTIME_SKILL_DIRECTORY_NAME_MISMATCH")
+
 required = [
     "SKILL.md",
     "references/glossary.md",
@@ -48,30 +72,6 @@ for relative in required:
             raise SystemExit(f"RUNTIME_SKILL_MISSING: {runtime_path}")
         if not filecmp.cmp(path, runtime_path, shallow=False):
             raise SystemExit(f"RUNTIME_SKILL_DIFFERS: {relative}")
-
-skill_text = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
-frontmatter_match = re.match(r"\A---\n(.*?)\n---(?:\n|\Z)", skill_text, re.DOTALL)
-if not frontmatter_match:
-    raise SystemExit("SKILL_FRONTMATTER_INVALID")
-
-frontmatter = {}
-for line in frontmatter_match.group(1).splitlines():
-    key, separator, value = line.partition(":")
-    if not separator or not key.strip() or key != key.strip():
-        raise SystemExit(f"SKILL_FRONTMATTER_LINE_INVALID: {line!r}")
-    if key in frontmatter:
-        raise SystemExit(f"SKILL_FRONTMATTER_DUPLICATE: {key}")
-    frontmatter[key] = value.strip()
-
-expected_frontmatter = {
-    "name": "dev-team",
-    "description": "手动调用的通用开发协作路由器；按任务风险选择最小团队，协调开发、UI、验证、Git 候选和安全收口。",
-    "disable-model-invocation": "true",
-}
-if frontmatter != expected_frontmatter:
-    raise SystemExit(f"SKILL_FRONTMATTER_MISMATCH: {frontmatter!r}")
-if skill_dir.name != frontmatter["name"]:
-    raise SystemExit("SKILL_DIRECTORY_NAME_MISMATCH")
 if "[TODO:" in skill_text[frontmatter_match.end():]:
     raise SystemExit("SKILL_UNFINISHED_TODO")
 
@@ -149,9 +149,27 @@ for marker in (
     "没有列出的提交、推送、PR、合并或删除不能借连续授权执行",
     "同一故障仍以 [recovery.md](recovery.md) 的熔断为准",
     "“本次一次性授权动作”或“满足条件后自动执行的动作”必须逐字包含“调用 `shoukou` 收口审计”，缺失则卡不完整，不得启动",
+    "语义授权边界",
+    "不是冻结的文件白名单",
+    "按既有锁文件恢复本地依赖",
+    "迁移相关代码函数/文件",
+    "数据、数据库结构、部署或其他高风险迁移",
 ):
     if marker not in dispatch_text:
         raise SystemExit(f"CONTINUOUS_EXECUTION_MARKER_MISSING: {marker}")
+for line in dispatch_text.splitlines():
+    if "必须停止" in line and "迁移" in line and "数据、数据库结构、部署或其他高风险迁移" not in line:
+        raise SystemExit(f"CONTINUOUS_EXECUTION_UNQUALIFIED_MIGRATION_STOP: {line}")
+
+discovery_text = (skill_dir / "references/project-discovery.md").read_text(encoding="utf-8")
+for marker in (
+    "连续任务前置准备",
+    "共享入口、相邻测试接缝或需要迁移的函数/文件",
+    "工作树已有锁文件",
+    "按既有锁文件恢复本地依赖不等于变更依赖或锁文件",
+):
+    if marker not in discovery_text:
+        raise SystemExit(f"CONTINUOUS_DISCOVERY_MARKER_MISSING: {marker}")
 continuous_card_labels = (
     "执行模式：普通 / 连续执行",
     "连续清单版本：",
@@ -208,9 +226,12 @@ for marker in (
         raise SystemExit(f"SPECIALIST_ROUTING_MARKER_MISSING: {marker}")
 
 scenario_text = (skill_dir / "tests/scenarios.md").read_text(encoding="utf-8")
-for marker in ("明确机械小修", "未知根因 Bug", "普通功能实现", "项目未采用 Matt 体系", "需求与计划就绪", "只读故障诊断", "测试与验收分工", "未知根因先诊断", "错误的诊断工具路由", "第三次失败后的伪装修复", "有新条件的恢复目标", "连续本地候选", "连续 PR 可评审", "连续验收回环", "未列合并", "明确条件合并与当前候选清理", "简单机械小修", "有效连续收口", "未覆盖或失效的收口", "明确全部授权", "UI 无关键选择直通", "UI 关键选择停止", "连续授权传递缺失", "替代卡与跨会话恢复", "准确候选动作", "自定义字段、状态或收口动作", "UI Design Read 已确认但写入权限未获得"):
+for marker in ("明确机械小修", "未知根因 Bug", "普通功能实现", "项目未采用 Matt 体系", "需求与计划就绪", "只读故障诊断", "测试与验收分工", "未知根因先诊断", "错误的诊断工具路由", "第三次失败后的伪装修复", "有新条件的恢复目标", "连续本地候选", "连续 PR 可评审", "连续验收回环", "未列合并", "明确条件合并与当前候选清理", "简单机械小修", "有效连续收口", "未覆盖或失效的收口", "明确全部授权", "UI 无关键选择直通", "UI 关键选择停止", "连续授权传递缺失", "替代卡与跨会话恢复", "准确候选动作", "自定义字段、状态或收口动作", "UI Design Read 已确认但写入权限未获得", "共享权威入口", "锁文件依赖恢复", "代码函数/文件迁移继续", "数据、数据库结构、部署类迁移停止", "真实越界", "源码候选目录验证"):
     if marker not in scenario_text:
         raise SystemExit(f"SPECIALIST_SCENARIO_MISSING: {marker}")
+for line in scenario_text.splitlines():
+    if "预期立即停止" in line and "迁移" in line and "数据、数据库结构、部署或其他高风险迁移" not in line:
+        raise SystemExit(f"SPECIALIST_SCENARIO_UNQUALIFIED_MIGRATION_STOP: {line}")
 
 expected = {
     "team-explorer.toml": ("项目勘察员", "gpt-5.6-luna", "medium", "read-only"),
@@ -246,6 +267,10 @@ for filename, values in expected.items():
         for marker in role_markers.get(filename, ()):
             if marker not in instructions:
                 raise SystemExit(f"AGENT_QUALITY_GATE_MISSING: {path}: {marker}")
+        if filename in ("team-developer.toml", "team-ui-maker.toml"):
+            for marker in ("语义授权边界", "不是冻结的", "按既有锁文件恢复本地依赖", "突破明确排除项"):
+                if marker not in instructions:
+                    raise SystemExit(f"AGENT_CONTINUOUS_SCOPE_GATE_MISSING: {path}: {marker}")
         for marker in ("失败次数达到 3", "允许的 diagnosing-bugs 阶段：1–4", "恢复诊断结论"):
             if marker in instructions:
                 raise SystemExit(f"AGENT_PARALLEL_FAULT_RULE: {path}: {marker}")
