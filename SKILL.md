@@ -11,10 +11,10 @@ disable-model-invocation: true
 ## 先守边界
 
 - 适用的系统、全局和项目规则始终优先；本 Skill 不产生写入、分支、合并、付费、发布或删除授权。
-- 启动子 Agent 或产生持续状态前，按适用规则展示执行卡并取得所需授权。
+- 本 Skill 不定义首次授权的取得方式。首次写入、启动子 Agent、创建候选或其他持续状态变化前，必须按全局 AGENTS.md 展示最新完整十四项卡并取得用户精确 `1`；确认后才可按卡连续执行。
 - 子 Agent 不创建下一层 Agent。默认最多两个子 Agent 同时活动，同一可变目标最多一个写入者。
 - 主任务必须检查实际来源、变更、工程质量和验证结果；子 Agent 的总结不是最终验收。
-- 只读回答、查找和检查可留在主任务；项目代码、UI、测试、配置、脚本、迁移和文档的写入按路由派单。机械小修只派一个开发执行员，不额外派勘察员或独立验收员。
+- 纯只读回答、查找和检查由主任务直接完成，不启动子 Agent；项目代码、UI、测试、配置、脚本、迁移和文档的写入按路由派单。机械小修在最新完整十四项卡收到精确 `1` 后只派一个开发执行员，不额外派勘察员或独立验收员。
 - 专项 Skill 只提供当前阶段的方法，不产生授权或成为第二个协调中心；每个阶段最多一个主要专项 Skill。
 
 ## 路由
@@ -24,7 +24,7 @@ disable-model-invocation: true
 3. 任何代码、UI、测试、配置、脚本或迁移写入都读取 [engineering-quality.md](references/engineering-quality.md)，先确定权威实现、复用项和替换/删除项；质量门禁未通过不算完成。
 4. 当前阶段可能需要需求澄清、测试、诊断、UI、架构、安全、研究、冲突处理、评审或收口方法时，读取 [specialist-routing.md](references/specialist-routing.md)；清楚任务可以明确不使用额外 Skill。
 5. 任务涉及分支、worktree、候选复用或开始新业务目标时，读取 [git-lifecycle.md](references/git-lifecycle.md) 和 [candidate-ledger.md](references/candidate-ledger.md)。
-6. 需要派单，或用户要求连续执行、全部授权或中途不要问时，读取 [dispatch-packet.md](references/dispatch-packet.md)。连续模式在启动任何操作前，主任务必须按其中的连续卡模板原样逐行渲染，并使用其固定枚举与终点必需动作；没有完整卡不得启动。由主任务确认需求与计划就绪，并确认连续执行授权（如适用）；任务包不完整就留在主任务。
+6. 任何派单、候选创建或项目写入前，读取 [dispatch-packet.md](references/dispatch-packet.md)。主任务必须按其中的十四项授权卡模板原样逐行渲染，并在用户对最新完整卡回复精确 `1` 后，才启动子 Agent 或产生持续状态；普通模式只可简化卡内动作内容，不得省略卡或父卡授权传递。由主任务确认需求与计划就绪；任务包或父卡记录不完整就留在主任务。
 7. 选择模型或思考强度时，读取 [model-policy.md](references/model-policy.md)。不要自动切换主任务模型。
 8. 涉及视觉、布局、交互、响应式、动效或组件状态时，优先读取 [ui-routing.md](references/ui-routing.md)；其 UI 专项规则优先于通用快速路径。
 9. 故障任务读取 [specialist-routing.md](references/specialist-routing.md) 和 [recovery.md](references/recovery.md)，分别确定诊断路由与故障状态。

@@ -83,8 +83,9 @@ for marker in (
     "specialist-routing.md",
     "阶段职责",
     "需求与计划就绪",
-    "连续执行授权",
-    "连续模式在启动任何操作前，主任务必须按其中的连续卡模板原样逐行渲染，并使用其固定枚举与终点必需动作；没有完整卡不得启动",
+    "十四项授权卡",
+    "任何派单、候选创建或项目写入前，读取 [dispatch-packet.md](references/dispatch-packet.md)",
+    "普通模式只可简化卡内动作内容，不得省略卡或父卡授权传递",
     "子 Agent 返回只表示其派单阶段结束，不表示主任务或业务目标完成",
     "不等待用户消息唤醒，也不得把普通进度写成“下一步：无需操作”",
     "收口授权判定以 [specialist-routing.md](references/specialist-routing.md) 为准",
@@ -113,7 +114,7 @@ for marker in ("不能以 `tdd`", "恢复字段只在失败次数达到 3"):
     if marker in dispatch_text:
         raise SystemExit(f"DISPATCH_PACKET_PARALLEL_RULE: {marker}")
 for marker in (
-    "连续执行授权",
+    "十四项授权卡",
     "执行模式：普通 / 连续执行",
     "连续清单版本：",
     "业务目标：",
@@ -128,24 +129,27 @@ for marker in (
     "授权状态：未获得 / 已获得",
     "授权消息：",
     "授权依据：",
-    "明确连续授权",
-    "已有实施授权",
-    "提案确认",
-    "全局规则已授予当前明确范围内的本地实施授权",
+    "授权卡有且只有一种启动路径",
+    "等待用户对该卡回复精确 `1`",
+    "均不能替代该首次确认",
     "枚举行硬门槛：执行模式行必须逐字且整行仅为“执行模式：普通”或“执行模式：连续执行”；授权状态行必须逐字且整行仅为“授权状态：未获得”或“授权状态：已获得”",
     "不得使用“连续执行提案”“待用户确认”“模拟执行”等同义状态",
-    "父连续清单版本：",
+    "父授权卡版本：",
     "父业务目标：",
     "父准确候选与 worktree：",
+    "父执行终点：",
     "本阶段允许动作：",
+    "父授权状态：已获得",
+    "父授权消息：",
+    "父授权依据：最新完整十四项卡的精确1",
     "新会话或新线程不得仅凭摘要、截图或旧卡继承授权",
     "渲染硬门槛：展示给用户的初始卡和替代卡必须按上述十四个原始字段标签、原始顺序逐行呈现",
     "不得用同义标题、说明性列表、合并项或另起十四项替代",
     "字段值未知时明确写“待只读核对”，但标签不得省略",
     "缺少任何原始标签或使用未允许的枚举值的卡不是完整卡，不得启动、请求或接受精确1",
-    "提案确认的未授权卡在授权依据中",
-    "授权消息记录触发授权的原始消息或精确1",
-    "版本递增的完整替代连续执行清单",
+    "未授权卡的授权消息记录当前原始请求",
+    "已授权卡的授权消息和授权依据均记录最新清单的精确1",
+    "版本递增的完整替代授权卡",
     "不能用简略动作列表、摘要或“新清单”替代",
     "缺任一字段不得请求或接受新的精确1",
     "主任务终点门禁",
@@ -153,7 +157,7 @@ for marker in (
     "未达到执行终点且未命中停止条件时，主任务必须继续等待、恢复或派发下一阶段",
     "不得把批次完成当作整体完成、要求用户消息唤醒，或把普通进度写成“下一步：无需操作”",
     "动作边界与终点预设",
-    "授权只覆盖当前版本的连续执行清单",
+    "授权只覆盖当前版本的授权卡",
     "没有列出的提交、推送、PR、合并或删除不能借连续授权执行",
     "同一故障仍以 [recovery.md](recovery.md) 的熔断为准",
     "“本次一次性授权动作”或“满足条件后自动执行的动作”必须逐字包含“调用 `shoukou` 收口审计”，缺失则卡不完整，不得启动",
@@ -178,7 +182,7 @@ for marker in (
 ):
     if marker not in discovery_text:
         raise SystemExit(f"CONTINUOUS_DISCOVERY_MARKER_MISSING: {marker}")
-continuous_card_labels = (
+authorization_card_labels = (
     "执行模式：普通 / 连续执行",
     "连续清单版本：",
     "业务目标：",
@@ -194,10 +198,11 @@ continuous_card_labels = (
     "授权消息：",
     "授权依据：",
 )
-label_positions = [dispatch_text.find(label) for label in continuous_card_labels]
+label_positions = [dispatch_text.find(label) for label in authorization_card_labels]
 if -1 in label_positions or label_positions != sorted(label_positions):
-    raise SystemExit("CONTINUOUS_CARD_LABEL_SEQUENCE_INVALID")
-for marker in ("连续清单有且只有两种启动路径", "替代卡按上述两种启动路径取得授权", "收到用户对最新清单的精确 `1` 后，执行到所列终点", "上述十个字段", "原授权已失效、用户的新变更请求和等待精确1"):
+    raise SystemExit("AUTHORIZATION_CARD_LABEL_SEQUENCE_INVALID")
+legacy_start_path = "启动" "路径"
+for marker in ("明确" "连续授权", "已有" "实施授权", "提案" "确认", "全局规则已授予当前明确范围内的" "本地实施授权", "连续清单有且只有" "两种" + legacy_start_path, "连续清单有且只有" "三种" + legacy_start_path, "替代卡按上述" "两种" + legacy_start_path + "取得授权", "替代卡按上述" "三种" + legacy_start_path + "取得授权", "简单只读、明确机械小修不强制生成清单", "普通模式不填写", "普通模式不增加", "收到用户对最新清单的精确 `1` 后，" "执行到所列终点", "上述" "十个字段", "原授权已失效、用户的新变更请求和等待" "精确1"):
     if marker in dispatch_text:
         raise SystemExit(f"CONTINUOUS_EXECUTION_OLD_RULE: {marker}")
 for marker in ("以dispatch有效卡为准", "收口消费既有授权", "审计前提满足时", "审计前提通过时消费既有授权"):
@@ -234,7 +239,7 @@ for marker in (
         raise SystemExit(f"SPECIALIST_ROUTING_MARKER_MISSING: {marker}")
 
 scenario_text = (skill_dir / "tests/scenarios.md").read_text(encoding="utf-8")
-for marker in ("明确机械小修", "未知根因 Bug", "普通功能实现", "项目未采用 Matt 体系", "需求与计划就绪", "只读故障诊断", "测试与验收分工", "未知根因先诊断", "错误的诊断工具路由", "第三次失败后的伪装修复", "有新条件的恢复目标", "连续本地候选", "连续 PR 可评审", "连续验收回环", "未列合并", "明确条件合并与当前候选清理", "简单机械小修", "有效连续收口", "未覆盖或失效的收口", "明确全部授权", "UI 无关键选择直通", "UI 关键选择停止", "连续授权传递缺失", "替代卡与跨会话恢复", "准确候选动作", "自定义字段、状态或收口动作", "UI Design Read 已确认但写入权限未获得", "共享权威入口", "锁文件依赖恢复", "代码函数/文件迁移继续", "数据、数据库结构、部署类迁移停止", "真实越界", "源码候选目录验证", "明确开发请求继承实施授权", "子 Agent 批次返回但仍有剩余", "达到连续执行终点", "真实停止条件优先"):
+for marker in ("明确机械小修", "未知根因 Bug", "普通功能实现", "项目未采用 Matt 体系", "需求与计划就绪", "只读故障诊断", "测试与验收分工", "未知根因先诊断", "错误的诊断工具路由", "第三次失败后的伪装修复", "有新条件的恢复目标", "连续本地候选", "连续 PR 可评审", "连续验收回环", "未列合并", "明确条件合并与当前候选清理", "未调用 dev-team 的首次门禁", "有效连续收口", "未覆盖或失效的收口", "调用 dev-team 的唯一首次授权卡", "UI 无关键选择直通", "UI 关键选择停止", "所有子角色缺少父卡记录", "替代卡与跨会话恢复", "准确候选动作", "自定义字段、状态或收口动作", "UI Design Read 已确认但写入权限未获得", "共享权威入口", "锁文件依赖恢复", "代码函数/文件迁移继续", "数据、数据库结构、部署类迁移停止", "真实越界", "源码候选目录验证", "精确确认后的批次续跑", "子 Agent 批次返回但仍有剩余", "达到连续执行终点", "真实停止条件优先"):
     if marker not in scenario_text:
         raise SystemExit(f"SPECIALIST_SCENARIO_MISSING: {marker}")
 for line in scenario_text.splitlines():
@@ -267,14 +272,17 @@ for filename, values in expected.items():
             if marker not in instructions:
                 raise SystemExit(f"AGENT_GATE_MISSING: {path}: {marker}")
         role_markers = {
-            "team-explorer.toml": ("专项 Skill", "不安装、启用或模拟", "specialist-routing.md", "recovery.md", "完整读取 `diagnosing-bugs`", "诊断记录", "工具写入请求", "连续授权传递", "父连续清单版本"),
-            "team-developer.toml": ("最小可维护实现", "技术债变化", "专项 Skill", "Matt `implement`", "自动化测试和功能自检", "specialist-routing.md", "recovery.md", "逐项核对派单字段", "拒绝写入并交回任务协调员", "连续授权传递", "父连续清单版本"),
-            "team-ui-maker.toml": ("最小可维护实现", "后置覆盖", "技术债变化", "专项 Skill", "`prototype`", "交互、响应式和浏览器自检", "specialist-routing.md", "recovery.md", "逐项核对派单字段", "拒绝并交回任务协调员", "连续授权传递", "父连续清单版本", "[ui-routing.md](../../references/ui-routing.md) 定义的 Design Read 状态", "Design Read 状态不是“已确认”时", "操作权限：工作区写入", "写入授权：已获得", "Design Read 已确认仅取消二次设计确认，不替代写入授权"),
-            "team-reviewer.toml": ("功能结果", "实现质量", "新增技术债", "专项 Skill", "`code-review`", "独立核查关键测试、功能或浏览器证据", "specialist-routing.md", "recovery.md", "按其核查派单、证据、计数、候选和恢复记录", "连续授权传递", "父连续清单版本"),
+            "team-explorer.toml": ("专项 Skill", "不安装、启用或模拟", "specialist-routing.md", "recovery.md", "完整读取 `diagnosing-bugs`", "诊断记录", "工具写入请求"),
+            "team-developer.toml": ("最小可维护实现", "技术债变化", "专项 Skill", "Matt `implement`", "自动化测试和功能自检", "specialist-routing.md", "recovery.md", "逐项核对派单字段", "拒绝写入并交回任务协调员"),
+            "team-ui-maker.toml": ("最小可维护实现", "后置覆盖", "技术债变化", "专项 Skill", "`prototype`", "交互、响应式和浏览器自检", "specialist-routing.md", "recovery.md", "逐项核对派单字段", "拒绝并交回任务协调员", "[ui-routing.md](../../references/ui-routing.md) 定义的 Design Read 状态", "Design Read 状态不是“已确认”时", "操作权限：工作区写入", "写入授权：已获得", "Design Read 已确认仅取消二次设计确认，不替代写入授权"),
+            "team-reviewer.toml": ("功能结果", "实现质量", "新增技术债", "专项 Skill", "`code-review`", "独立核查关键测试、功能或浏览器证据", "specialist-routing.md", "recovery.md", "按其核查派单、证据、计数、候选和恢复记录"),
         }
         for marker in role_markers.get(filename, ()):
             if marker not in instructions:
                 raise SystemExit(f"AGENT_QUALITY_GATE_MISSING: {path}: {marker}")
+        for marker in ("父卡授权传递", "父授权卡版本", "父业务目标", "父准确候选与 worktree", "父执行终点", "本阶段允许动作", "必须停止的情况", "父授权状态", "父授权消息", "父授权依据", "最新完整十四项卡的精确1", "普通模式不得省略这些字段"):
+            if marker not in instructions:
+                raise SystemExit(f"AGENT_PARENT_CARD_GATE_MISSING: {path}: {marker}")
         if filename in ("team-developer.toml", "team-ui-maker.toml"):
             for marker in ("语义授权边界", "不是冻结的", "按既有锁文件恢复本地依赖", "突破明确排除项"):
                 if marker not in instructions:
