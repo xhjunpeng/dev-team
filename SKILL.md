@@ -24,7 +24,7 @@ disable-model-invocation: true
 3. 任何代码、UI、测试、配置、脚本或迁移写入都读取 [engineering-quality.md](references/engineering-quality.md)，先确定权威实现、复用项和替换/删除项；质量门禁未通过不算完成。
 4. 当前阶段可能需要需求澄清、测试、诊断、UI、架构、安全、研究、冲突处理、评审或收口方法时，读取 [specialist-routing.md](references/specialist-routing.md)；清楚任务可以明确不使用额外 Skill。
 5. 任务涉及分支、worktree、候选复用或开始新业务目标时，读取 [git-lifecycle.md](references/git-lifecycle.md) 和 [candidate-ledger.md](references/candidate-ledger.md)。
-6. 任何派单、候选创建或项目写入前，读取 [dispatch-packet.md](references/dispatch-packet.md)。主任务必须按其中的十四项授权卡模板原样逐行渲染，并在用户对最新完整卡回复精确 `1` 后，才启动子 Agent 或产生持续状态；普通模式只可简化卡内动作内容，不得省略卡或父卡授权传递。由主任务确认需求与计划就绪；任务包或父卡记录不完整就留在主任务。
+6. 任何派单、候选创建或项目写入前，读取 [dispatch-packet.md](references/dispatch-packet.md)。主任务必须按其中的十四项授权卡结构化文本模板，在单个 `text` 文本框内按原字段顺序渲染；长动作拆成缩进短项，并在用户对最新完整卡回复精确 `1` 后，才启动子 Agent 或产生持续状态；普通模式只可简化卡内动作内容，不得省略卡或父卡授权传递。由主任务确认需求与计划就绪；任务包或父卡记录不完整就留在主任务。
 7. 选择模型或思考强度时，读取 [model-policy.md](references/model-policy.md)。不要自动切换主任务模型。
 8. 涉及视觉、布局、交互、响应式、动效或组件状态时，优先读取 [ui-routing.md](references/ui-routing.md)；其 UI 专项规则优先于通用快速路径。
 9. 故障任务读取 [specialist-routing.md](references/specialist-routing.md) 和 [recovery.md](references/recovery.md)，分别确定诊断路由与故障状态。
