@@ -22,7 +22,7 @@ disable-model-invocation: true
 1. 先读取 [routing.md](references/routing.md)，选择快速、标准或严格路径。流程可以随新证据升级，也可以降级。
 2. 任务涉及写入、运行环境或项目约束时，读取 [project-discovery.md](references/project-discovery.md)。只发现当前事实，不缓存项目专属副本。
 3. 任何代码、UI、测试、配置、脚本或迁移写入都读取 [engineering-quality.md](references/engineering-quality.md)，先确定权威实现、复用项和替换/删除项；质量门禁未通过不算完成。
-4. 派单、候选或失败状态必须读取 [executable-protocol.md](references/executable-protocol.md)，并以固定任务状态路径运行其校验器，验证可观察的授权、候选、失败和范围事实；它不替代真实聊天授权或平台权限。
+4. 派单、候选、交付证据或失败状态必须读取 [executable-protocol.md](references/executable-protocol.md)，并以固定任务状态路径运行其校验器，验证可观察的授权、候选、交付、失败和范围事实；它不替代真实聊天授权、业务运行或平台权限。
 5. 当前阶段可能需要需求澄清、测试、诊断、UI、架构、安全、研究、冲突处理、评审或收口方法时，读取 [specialist-routing.md](references/specialist-routing.md)；清楚任务可以明确不使用额外 Skill。
 6. 每个新业务目标、候选恢复或写入前隔离判断都读取 [git-lifecycle.md](references/git-lifecycle.md) 和 [candidate-ledger.md](references/candidate-ledger.md)。主任务先判断复用当前候选、新建分支、使用独立 worktree，还是先提示收口；建议不等于执行 Git 动作。
 7. 任何派单、候选创建或项目写入前，读取 [dispatch-packet.md](references/dispatch-packet.md)。主任务必须按其中的十四项授权卡结构化文本模板，在单个 fenced `text` 代码块内按原字段顺序渲染：开头行必须字面为 <code>```text</code>，闭合行必须字面为 <code>```</code>；普通 Markdown 标题、段落或列表不是授权卡，不得请求或接受精确 `1`。长动作拆成缩进短项，并在用户对最新完整卡回复精确 `1` 后，才启动子 Agent 或产生持续状态；普通模式只可简化卡内动作内容，不得省略卡或父卡授权传递。由主任务确认需求与计划就绪；任务包或父卡记录不完整就留在主任务。
