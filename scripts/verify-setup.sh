@@ -146,6 +146,7 @@ for marker in (
     "展示给用户的初始卡和替代卡必须置于一个 `text` 文本框",
     "授权清单 · v<连续清单版本>",
     "[范围]、[执行]、[边界]、[授权]",
+    "五个动作/边界字段的多个事项必须另起缩进行",
     "动作与边界字段的多个事项以缩进短项呈现，不得堆成横向长句",
     "不得用表格、同义标题、合并项或另起十四项替代",
     "字段值未知时明确写“待只读核对”，但标签不得省略",
@@ -201,6 +202,58 @@ authorization_card_labels = (
     "授权消息：",
     "授权依据：",
 )
+card_templates = re.findall(
+    r"```text\n(授权清单 · v<连续清单版本>.*?\n)```",
+    dispatch_text,
+    re.DOTALL,
+)
+if len(card_templates) != 1:
+    raise SystemExit("AUTHORIZATION_CARD_TEMPLATE_COUNT_INVALID")
+
+card_template_lines = card_templates[0].splitlines()
+expected_card_lines = (
+    "授权清单 · v<连续清单版本>",
+    "[范围]",
+    "执行模式：普通 / 连续执行",
+    "连续清单版本：",
+    "业务目标：",
+    "准确候选与 worktree：",
+    "[执行]",
+    "执行终点：本地候选完成 / PR 可评审 / 已合并并清理 / 自定义",
+    "本次一次性授权动作：",
+    "满足条件后自动执行的动作：",
+    "自动修复与复验策略：",
+    "[边界]",
+    "必须停止的情况：",
+    "明确不会执行：",
+    "进度汇报方式：只汇报 / 需要确认",
+    "[授权]",
+    "授权状态：未获得 / 已获得",
+    "授权消息：",
+    "授权依据：",
+)
+card_line_positions = []
+for expected_line in expected_card_lines:
+    try:
+        position = card_template_lines.index(expected_line)
+    except ValueError:
+        raise SystemExit(f"AUTHORIZATION_CARD_TEMPLATE_LINE_MISSING: {expected_line}")
+    card_line_positions.append(position)
+if card_line_positions != sorted(card_line_positions):
+    raise SystemExit("AUTHORIZATION_CARD_TEMPLATE_ORDER_INVALID")
+
+action_boundary_fields = (
+    "本次一次性授权动作：",
+    "满足条件后自动执行的动作：",
+    "自动修复与复验策略：",
+    "必须停止的情况：",
+    "明确不会执行：",
+)
+for field in action_boundary_fields:
+    field_position = card_template_lines.index(field)
+    if field_position + 1 >= len(card_template_lines) or not card_template_lines[field_position + 1].startswith("  - "):
+        raise SystemExit(f"AUTHORIZATION_CARD_INDENTED_SHORT_ITEM_MISSING: {field}")
+
 label_positions = [dispatch_text.find(label) for label in authorization_card_labels]
 if -1 in label_positions or label_positions != sorted(label_positions):
     raise SystemExit("AUTHORIZATION_CARD_LABEL_SEQUENCE_INVALID")
@@ -248,6 +301,15 @@ for marker in ("明确机械小修", "未知根因 Bug", "普通功能实现", "
 for line in scenario_text.splitlines():
     if "预期立即停止" in line and "迁移" in line and "数据、数据库结构、部署或其他高风险迁移" not in line:
         raise SystemExit(f"SPECIALIST_SCENARIO_UNQUALIFIED_MIGRATION_STOP: {line}")
+if "逐行呈现" in scenario_text:
+    raise SystemExit("SPECIALIST_SCENARIO_LEGACY_CARD_LAYOUT")
+for marker in (
+    "在单个 `text` 文本框中按“[范围]、[执行]、[边界]、[授权]”四段组织十四个原始标签",
+    "五个动作/边界字段的多个事项使用缩进短项",
+    "替代清单必须在单个 `text` 文本框中按四段和十四个原始标签顺序填写",
+):
+    if marker not in scenario_text:
+        raise SystemExit(f"SPECIALIST_SCENARIO_CARD_LAYOUT_MISSING: {marker}")
 
 expected = {
     "team-explorer.toml": ("项目勘察员", "gpt-5.6-luna", "medium", "read-only"),
