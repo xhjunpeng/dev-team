@@ -23,8 +23,8 @@ disable-model-invocation: true
 2. 任务涉及写入、运行环境或项目约束时，读取 [project-discovery.md](references/project-discovery.md)。只发现当前事实，不缓存项目专属副本。
 3. 任何代码、UI、测试、配置、脚本或迁移写入都读取 [engineering-quality.md](references/engineering-quality.md)，先确定权威实现、复用项和替换/删除项；质量门禁未通过不算完成。
 4. 当前阶段可能需要需求澄清、测试、诊断、UI、架构、安全、研究、冲突处理、评审或收口方法时，读取 [specialist-routing.md](references/specialist-routing.md)；清楚任务可以明确不使用额外 Skill。
-5. 任务涉及分支、worktree、候选复用或开始新业务目标时，读取 [git-lifecycle.md](references/git-lifecycle.md) 和 [candidate-ledger.md](references/candidate-ledger.md)。
-6. 任何派单、候选创建或项目写入前，读取 [dispatch-packet.md](references/dispatch-packet.md)。主任务必须按其中的十四项授权卡结构化文本模板，在单个 `text` 文本框内按原字段顺序渲染；长动作拆成缩进短项，并在用户对最新完整卡回复精确 `1` 后，才启动子 Agent 或产生持续状态；普通模式只可简化卡内动作内容，不得省略卡或父卡授权传递。由主任务确认需求与计划就绪；任务包或父卡记录不完整就留在主任务。
+5. 每个新业务目标、候选恢复或写入前隔离判断都读取 [git-lifecycle.md](references/git-lifecycle.md) 和 [candidate-ledger.md](references/candidate-ledger.md)。主任务先判断复用当前候选、新建分支、使用独立 worktree，还是先提示收口；建议不等于执行 Git 动作。
+6. 任何派单、候选创建或项目写入前，读取 [dispatch-packet.md](references/dispatch-packet.md)。主任务必须按其中的十四项授权卡结构化文本模板，在单个 fenced `text` 代码块内按原字段顺序渲染：开头行必须字面为 <code>```text</code>，闭合行必须字面为 <code>```</code>；普通 Markdown 标题、段落或列表不是授权卡，不得请求或接受精确 `1`。长动作拆成缩进短项，并在用户对最新完整卡回复精确 `1` 后，才启动子 Agent 或产生持续状态；普通模式只可简化卡内动作内容，不得省略卡或父卡授权传递。由主任务确认需求与计划就绪；任务包或父卡记录不完整就留在主任务。
 7. 选择模型或思考强度时，读取 [model-policy.md](references/model-policy.md)。不要自动切换主任务模型。
 8. 涉及视觉、布局、交互、响应式、动效或组件状态时，优先读取 [ui-routing.md](references/ui-routing.md)；其 UI 专项规则优先于通用快速路径。
 9. 故障任务读取 [specialist-routing.md](references/specialist-routing.md) 和 [recovery.md](references/recovery.md)，分别确定诊断路由与故障状态。
@@ -53,9 +53,9 @@ disable-model-invocation: true
 
 ## 完成与收口
 
-- 连续执行中，子 Agent 返回只表示其派单阶段结束，不表示主任务或业务目标完成。主任务必须依 [dispatch-packet.md](references/dispatch-packet.md) 的主任务终点门禁核对执行终点与必须停止的情况：未到终点且未命中停止条件时，继续等待、恢复或派发下一阶段，不等待用户消息唤醒，也不得把普通进度写成“下一步：无需操作”。
+- 发送最终回复前，主任务必须依 [dispatch-packet.md](references/dispatch-packet.md) 检查活动子 Agent、执行终点和停止条件：仍有子 Agent 运行时只发进度并继续等待；终点未到且未命中停止条件时继续恢复或派发；只有终点已达到或真实停止条件已命中时才可结束。真实停止时必须说明原因、当前候选状态、推荐下一步和需要用户决定的事项，不等待用户发消息唤醒本应继续的任务。
 - 快速路径完成于直接结果、工程质量通过和相称验证。
 - 标准路径完成于明确改动、工程质量通过、针对性验证以及主任务复核。
 - 严格路径还需要独立验收同时确认功能结果与实现质量、回滚边界和当前候选证据。
-- 候选完成、合并、暂停、放弃或准备开始新业务目标时，判断是否进入收口；实际合并和清理使用 `shoukou` 审计，收口授权判定以 [specialist-routing.md](references/specialist-routing.md) 为准。
+- 候选完成、合并、暂停、放弃或准备开始新业务目标时，主任务必须基于候选台账输出收口状态（继续开发 / 建议收口 / 阻塞）、是否阻止开始新业务目标和下一步建议；新业务目标遇到不属于同一未完成目标的脏改动时不得启动。实际提交、推送、合并和清理使用 `shoukou` 审计，收口授权判定以 [specialist-routing.md](references/specialist-routing.md) 为准。
 - 故障的熔断与恢复以 [recovery.md](references/recovery.md) 为准。

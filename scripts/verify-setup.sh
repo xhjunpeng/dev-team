@@ -85,10 +85,14 @@ for marker in (
     "需求与计划就绪",
     "十四项授权卡",
     "任何派单、候选创建或项目写入前，读取 [dispatch-packet.md](references/dispatch-packet.md)",
+    "开头行必须字面为 <code>```text</code>，闭合行必须字面为 <code>```</code>",
+    "每个新业务目标、候选恢复或写入前隔离判断都读取 [git-lifecycle.md](references/git-lifecycle.md) 和 [candidate-ledger.md](references/candidate-ledger.md)",
     "普通模式只可简化卡内动作内容，不得省略卡或父卡授权传递",
-    "子 Agent 返回只表示其派单阶段结束，不表示主任务或业务目标完成",
-    "不等待用户消息唤醒，也不得把普通进度写成“下一步：无需操作”",
+    "发送最终回复前",
+    "仍有子 Agent 运行时只发进度并继续等待",
+    "真实停止时必须说明原因、当前候选状态、推荐下一步和需要用户决定的事项",
     "收口授权判定以 [specialist-routing.md](references/specialist-routing.md) 为准",
+    "收口状态（继续开发 / 建议收口 / 阻塞）、是否阻止开始新业务目标",
 ):
     if marker not in skill_text:
         raise SystemExit(f"SKILL_MARKER_MISSING: {marker}")
@@ -100,6 +104,10 @@ for marker in (
     "可观察的验收标准：",
     "唯一写入者：",
     "交回主任务/停止条件：",
+    "任务关系：同一未完成业务目标 / 新业务目标 / 归属不明",
+    "隔离判定：复用当前候选 / 主分支直接写 / 当前目录候选分支 / 独立分支与 worktree / 先收口或明确保留",
+    "当前收口状态：继续开发 / 建议收口 / 阻塞",
+    "是否阻止开始新业务目标：是 / 否",
     "故障派单字段",
     "写入类别：只读诊断 / 诊断工具写入 / 生产修复",
     "恢复目标类型：否 / 诊断 / 生产修复",
@@ -143,7 +151,9 @@ for marker in (
     "父授权消息：",
     "父授权依据：最新完整十四项卡的精确1",
     "新会话或新线程不得仅凭摘要、截图或旧卡继承授权",
-    "展示给用户的初始卡和替代卡必须置于一个 `text` 文本框",
+    "展示给用户的初始卡和替代卡必须置于一个 fenced `text` 代码块",
+    "普通 Markdown 标题、段落或列表形式的卡片无效",
+    "且整张卡只能有这一对围栏",
     "授权清单 · v<连续清单版本>",
     "[范围]、[执行]、[边界]、[授权]",
     "五个动作/边界字段的多个事项必须另起缩进行",
@@ -158,8 +168,10 @@ for marker in (
     "缺任一字段不得请求或接受新的精确1",
     "主任务终点门禁",
     "子 Agent 返回只表示本派单阶段结束，不表示主任务或业务目标完成",
-    "未达到执行终点且未命中停止条件时，主任务必须继续等待、恢复或派发下一阶段",
-    "不得把批次完成当作整体完成、要求用户消息唤醒，或把普通进度写成“下一步：无需操作”",
+    "仍有子 Agent 运行时，只能发送进度并立即继续等待，不得发送最终回复",
+    "未达到执行终点且未命中停止条件时，主任务必须继续等待、恢复或派发下一阶段，不得发送最终回复",
+    "最终回复只允许用于“已达到执行终点”或“真实停止条件已命中”两种状态",
+    "说明原因、当前候选状态、推荐下一步和需要用户决定的事项",
     "动作边界与终点预设",
     "授权只覆盖当前版本的授权卡",
     "没有列出的提交、推送、PR、合并或删除不能借连续授权执行",
@@ -183,6 +195,9 @@ for marker in (
     "共享入口、相邻测试接缝或需要迁移的函数/文件",
     "工作树已有锁文件",
     "按既有锁文件恢复本地依赖不等于变更依赖或锁文件",
+    "任务关系：",
+    "隔离判定与依据：",
+    "收口状态与是否阻止新业务目标：",
 ):
     if marker not in discovery_text:
         raise SystemExit(f"CONTINUOUS_DISCOVERY_MARKER_MISSING: {marker}")
@@ -254,7 +269,7 @@ for field in action_boundary_fields:
     if field_position + 1 >= len(card_template_lines) or not card_template_lines[field_position + 1].startswith("  - "):
         raise SystemExit(f"AUTHORIZATION_CARD_INDENTED_SHORT_ITEM_MISSING: {field}")
 
-label_positions = [dispatch_text.find(label) for label in authorization_card_labels]
+label_positions = [card_templates[0].find(label) for label in authorization_card_labels]
 if -1 in label_positions or label_positions != sorted(label_positions):
     raise SystemExit("AUTHORIZATION_CARD_LABEL_SEQUENCE_INVALID")
 legacy_start_path = "启动" "路径"
@@ -265,10 +280,33 @@ for marker in ("以dispatch有效卡为准", "收口消费既有授权", "审计
     if marker in dispatch_text:
         raise SystemExit(f"DISPATCH_SHOUKOU_DECISION_DUPLICATED: {marker}")
 
+git_lifecycle_text = (skill_dir / "references/git-lifecycle.md").read_text(encoding="utf-8")
+for marker in (
+    "任务隔离前置判断",
+    "主任务负责隔离、收口和 Git 决定",
+    "新业务目标，当前目录干净、没有运行态绑定，且用户明确允许直接在主分支做局部 L1 文档改动",
+    "新业务目标，涉及代码、配置、测试、脚本、跨会话交付、PR 或需要独立提交历史",
+    "当前目录有已完成任务的未收口改动、归属不清改动或多个疑似候选",
+    "收口判断与新任务门禁",
+    "建议不授予任何 Git 动作",
+    "只要当前目录不干净，就阻止开始新业务目标",
+):
+    if marker not in git_lifecycle_text:
+        raise SystemExit(f"GIT_LIFECYCLE_ISOLATION_MARKER_MISSING: {marker}")
+
 ledger_text = (skill_dir / "references/candidate-ledger.md").read_text(encoding="utf-8")
 for marker in ("连续清单版本：", "连续执行终点：", "连续授权消息/依据：", "连续授权状态：", "旧会话摘要、截图或转述不是授权记录"):
     if marker in ledger_text:
         raise SystemExit(f"CANDIDATE_LEDGER_CONTINUOUS_AUTHORITY: {marker}")
+for marker in (
+    "任务关系：同一未完成业务目标 / 新业务目标 / 归属不明",
+    "隔离判定：复用当前候选 / 主分支直接写 / 当前目录候选分支 / 独立分支与 worktree / 先收口或明确保留",
+    "收口状态：继续开发 / 建议收口 / 阻塞",
+    "建议收口动作：提交并推送 / 提交、推送和 PR / 合并并清理当前候选 / 不适用",
+    "是否阻止开始新业务目标：是 / 否",
+):
+    if marker not in ledger_text:
+        raise SystemExit(f"CANDIDATE_LEDGER_ISOLATION_MARKER_MISSING: {marker}")
 
 glossary_text = (skill_dir / "references/glossary.md").read_text(encoding="utf-8")
 if "[recovery.md](recovery.md)" not in glossary_text:
@@ -295,7 +333,7 @@ for marker in (
         raise SystemExit(f"SPECIALIST_ROUTING_MARKER_MISSING: {marker}")
 
 scenario_text = (skill_dir / "tests/scenarios.md").read_text(encoding="utf-8")
-for marker in ("明确机械小修", "未知根因 Bug", "普通功能实现", "项目未采用 Matt 体系", "需求与计划就绪", "只读故障诊断", "测试与验收分工", "未知根因先诊断", "错误的诊断工具路由", "第三次失败后的伪装修复", "有新条件的恢复目标", "连续本地候选", "连续 PR 可评审", "连续验收回环", "未列合并", "明确条件合并与当前候选清理", "未调用 dev-team 的首次门禁", "有效连续收口", "未覆盖或失效的收口", "调用 dev-team 的唯一首次授权卡", "UI 无关键选择直通", "UI 关键选择停止", "所有子角色缺少父卡记录", "替代卡与跨会话恢复", "准确候选动作", "自定义字段、状态或收口动作", "UI Design Read 已确认但写入权限未获得", "共享权威入口", "锁文件依赖恢复", "代码函数/文件迁移继续", "数据、数据库结构、部署类迁移停止", "真实越界", "源码候选目录验证", "精确确认后的批次续跑", "子 Agent 批次返回但仍有剩余", "达到连续执行终点", "真实停止条件优先"):
+for marker in ("明确机械小修", "未知根因 Bug", "普通功能实现", "项目未采用 Matt 体系", "需求与计划就绪", "只读故障诊断", "测试与验收分工", "未知根因先诊断", "错误的诊断工具路由", "第三次失败后的伪装修复", "有新条件的恢复目标", "连续本地候选", "连续 PR 可评审", "连续验收回环", "未列合并", "明确条件合并与当前候选清理", "未调用 dev-team 的首次门禁", "有效连续收口", "未覆盖或失效的收口", "调用 dev-team 的唯一首次授权卡", "UI 无关键选择直通", "UI 关键选择停止", "所有子角色缺少父卡记录", "替代卡与跨会话恢复", "准确候选动作", "自定义字段、状态或收口动作", "UI Design Read 已确认但写入权限未获得", "共享权威入口", "锁文件依赖恢复", "代码函数/文件迁移继续", "数据、数据库结构、部署类迁移停止", "真实越界", "源码候选目录验证", "精确确认后的批次续跑", "子 Agent 批次返回但仍有剩余", "达到连续执行终点", "真实停止条件优先", "已验证主分支改动", "新目标遇到已完成脏改动", "同一未完成目标复用候选", "新代码目标的候选分支", "脏目录或并行目标隔离", "子 Agent 收口事实回报", "已调用 dev-team 但缺围栏", "子 Agent 仍运行却结束回合"):
     if marker not in scenario_text:
         raise SystemExit(f"SPECIALIST_SCENARIO_MISSING: {marker}")
 for line in scenario_text.splitlines():
@@ -348,6 +386,9 @@ for filename, values in expected.items():
         for marker in ("父卡授权传递", "父授权卡版本", "父业务目标", "父准确候选与 worktree", "父执行终点", "本阶段允许动作", "必须停止的情况", "父授权状态", "父授权消息", "父授权依据", "最新完整十四项卡的精确1", "普通模式不得省略这些字段"):
             if marker not in instructions:
                 raise SystemExit(f"AGENT_PARENT_CARD_GATE_MISSING: {path}: {marker}")
+        for marker in ("当前改动归属", "候选/worktree 事实", "收口状态（继续开发 / 建议收口 / 阻塞）", "是否阻止开始新业务目标"):
+            if marker not in instructions:
+                raise SystemExit(f"AGENT_CLOSEOUT_REPORT_MISSING: {path}: {marker}")
         if filename in ("team-developer.toml", "team-ui-maker.toml"):
             for marker in ("语义授权边界", "不是冻结的", "按既有锁文件恢复本地依赖", "突破明确排除项"):
                 if marker not in instructions:
