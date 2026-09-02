@@ -14,7 +14,9 @@ runtime_skill_dir=${2:-/Users/jumper/.codex/skills/dev-team}
 python3 - "$skill_dir" "$agent_dir" "$runtime_skill_dir" "$source_only" <<'PY'
 from pathlib import Path
 import filecmp
+import os
 import re
+import subprocess
 import sys
 import tomllib
 
@@ -48,10 +50,12 @@ if not source_only and runtime_skill_dir.name != frontmatter["name"]:
     raise SystemExit("RUNTIME_SKILL_DIRECTORY_NAME_MISMATCH")
 
 required = [
+    ".gitignore",
     "SKILL.md",
     "references/glossary.md",
     "references/project-discovery.md",
     "references/engineering-quality.md",
+    "references/executable-protocol.md",
     "references/specialist-routing.md",
     "references/git-lifecycle.md",
     "references/candidate-ledger.md",
@@ -61,6 +65,12 @@ required = [
     "references/ui-routing.md",
     "references/recovery.md",
     "tests/scenarios.md",
+    "scripts/verify-protocol.py",
+    "tests/test_protocol.py",
+    "tests/fixtures/protocol/valid.json",
+    "tests/fixtures/protocol/non-main-direct-write.json",
+    "tests/fixtures/protocol/mismatched-failure-count.json",
+    "tests/fixtures/protocol/missing-card-field.json",
 ]
 for relative in required:
     path = skill_dir / relative
@@ -75,6 +85,42 @@ for relative in required:
 if "[TODO:" in skill_text[frontmatter_match.end():]:
     raise SystemExit("SKILL_UNFINISHED_TODO")
 
+verification_roots = [("SOURCE", skill_dir)]
+if not source_only:
+    verification_roots.append(("RUNTIME", runtime_skill_dir))
+for label, root in verification_roots:
+    cache_dirs = sorted(path for path in root.rglob("__pycache__") if path.is_dir())
+    if cache_dirs:
+        raise SystemExit(f"PYTHON_CACHE_PRESENT: {label}: {cache_dirs[0]}")
+
+protocol_text = (skill_dir / "references/executable-protocol.md").read_text(encoding="utf-8")
+for marker in (
+    "唯一机器可验证定义",
+    "production_failure_count",
+    "write_scope",
+    "--structure-only",
+    "不能证明用户的聊天回复真实对应某张卡",
+):
+    if marker not in protocol_text:
+        raise SystemExit(f"EXECUTABLE_PROTOCOL_MARKER_MISSING: {marker}")
+protocol_test = subprocess.run(
+    (sys.executable, str(skill_dir / "tests" / "test_protocol.py")),
+    text=True,
+    capture_output=True,
+    env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+)
+if protocol_test.returncode != 0 or "PROTOCOL_SCENARIOS=PASS" not in protocol_test.stdout:
+    raise SystemExit(f"EXECUTABLE_PROTOCOL_TEST_FAILED: {protocol_test.stderr.strip() or protocol_test.stdout.strip()}")
+if not source_only:
+    runtime_protocol_test = subprocess.run(
+        (sys.executable, str(runtime_skill_dir / "tests" / "test_protocol.py")),
+        text=True,
+        capture_output=True,
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+    )
+    if runtime_protocol_test.returncode != 0 or "PROTOCOL_SCENARIOS=PASS" not in runtime_protocol_test.stdout:
+        raise SystemExit(f"RUNTIME_PROTOCOL_TEST_FAILED: {runtime_protocol_test.stderr.strip() or runtime_protocol_test.stdout.strip()}")
+
 for marker in (
     "name: dev-team",
     "disable-model-invocation: true",
@@ -88,6 +134,7 @@ for marker in (
     "开头行必须字面为 <code>```text</code>，闭合行必须字面为 <code>```</code>",
     "每个新业务目标、候选恢复或写入前隔离判断都读取 [git-lifecycle.md](references/git-lifecycle.md) 和 [candidate-ledger.md](references/candidate-ledger.md)",
     "普通模式只可简化卡内动作内容，不得省略卡或父卡授权传递",
+    "executable-protocol.md",
     "发送最终回复前",
     "仍有子 Agent 运行时只发进度并继续等待",
     "真实停止时必须说明原因、当前候选状态、推荐下一步和需要用户决定的事项",
@@ -284,7 +331,9 @@ git_lifecycle_text = (skill_dir / "references/git-lifecycle.md").read_text(encod
 for marker in (
     "任务隔离前置判断",
     "主任务负责隔离、收口和 Git 决定",
-    "新业务目标，当前目录干净、没有运行态绑定，且用户明确允许直接在主分支做局部 L1 文档改动",
+    "新业务目标，当前目录干净、没有运行态绑定，且用户明确允许直接在由 Git 元数据核验的主分支做局部 L1 文档改动",
+    "优先解析的 `refs/remotes/origin/HEAD`",
+    "不得由状态把当前候选自报为主分支",
     "新业务目标，涉及代码、配置、测试、脚本、跨会话交付、PR 或需要独立提交历史",
     "当前目录有已完成任务的未收口改动、归属不清改动或多个疑似候选",
     "收口判断与新任务门禁",
@@ -374,6 +423,9 @@ for filename, values in expected.items():
         for marker in ("协作模式：已启用", "任务包版本：1", "不要创建子 Agent"):
             if marker not in instructions:
                 raise SystemExit(f"AGENT_GATE_MISSING: {path}: {marker}")
+        for marker in ("scripts/verify-protocol.py", "references/executable-protocol.md", "状态记录不能代替真实聊天授权或实际沙箱权限"):
+            if marker not in instructions:
+                raise SystemExit(f"AGENT_EXECUTABLE_PROTOCOL_GATE_MISSING: {path}: {marker}")
         role_markers = {
             "team-explorer.toml": ("专项 Skill", "不安装、启用或模拟", "specialist-routing.md", "recovery.md", "完整读取 `diagnosing-bugs`", "诊断记录", "工具写入请求"),
             "team-developer.toml": ("最小可维护实现", "技术债变化", "专项 Skill", "Matt `implement`", "自动化测试和功能自检", "specialist-routing.md", "recovery.md", "逐项核对派单字段", "拒绝写入并交回任务协调员"),
@@ -383,7 +435,7 @@ for filename, values in expected.items():
         for marker in role_markers.get(filename, ()):
             if marker not in instructions:
                 raise SystemExit(f"AGENT_QUALITY_GATE_MISSING: {path}: {marker}")
-        for marker in ("父卡授权传递", "父授权卡版本", "父业务目标", "父准确候选与 worktree", "父执行终点", "本阶段允许动作", "必须停止的情况", "父授权状态", "父授权消息", "父授权依据", "最新完整十四项卡的精确1", "普通模式不得省略这些字段"):
+        for marker in ("父卡授权传递", "父授权卡版本", "父业务目标", "父准确候选与 worktree", "父执行终点", "本阶段允许动作", "必须停止的情况", "父授权状态", "父授权消息", "父授权依据", "主任务是唯一核对聊天授权事实的角色", "普通模式不得省略这些字段"):
             if marker not in instructions:
                 raise SystemExit(f"AGENT_PARENT_CARD_GATE_MISSING: {path}: {marker}")
         for marker in ("当前改动归属", "候选/worktree 事实", "收口状态（继续开发 / 建议收口 / 阻塞）", "是否阻止开始新业务目标"):

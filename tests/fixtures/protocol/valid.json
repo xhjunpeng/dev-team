@@ -1,0 +1,43 @@
+{
+  "protocol_version": 2,
+  "migration": null,
+  "task_id": "protocol-test",
+  "lifecycle": "active",
+  "skill_root": "/tmp/dev-team",
+  "git_baseline": "1111111111111111111111111111111111111111",
+  "ignored_untracked_policy": "excluded",
+  "primary_branch": "main",
+  "authorization_card": {
+    "execution_mode": "普通",
+    "version": "1",
+    "business_goal": "验证协议",
+    "candidate_and_worktree": "codex/example；/tmp/example",
+    "execution_endpoint": "本地候选完成",
+    "one_time_actions": ["验证状态"],
+    "automatic_actions": ["复验"],
+    "repair_and_reverify": ["修复范围内问题"],
+    "stop_conditions": ["范围变化"],
+    "will_not_do": ["提交"],
+    "progress_mode": "只汇报",
+    "authorization_status": "已获得",
+    "authorization_message": "1",
+    "authorization_basis": "最新完整十四项卡的精确1"
+  },
+  "candidate": {
+    "branch": "codex/example",
+    "worktree": "/tmp/example",
+    "isolation": "当前目录候选分支",
+    "state": "开发中",
+    "closeout_state": "继续开发",
+    "blocks_new_business_goal": true
+  },
+  "failure_identity": {
+    "id": "protocol-failure",
+    "symptom": "验证协议失败",
+    "stable_signal": "python3 reproduce.py"
+  },
+  "production_failure_count": 0,
+  "failure_records": [],
+  "recovery": {"kind": "none", "pre_recovery_authorization": null, "diagnosis_authorization": null, "new_evidence": null, "diagnosis_stage": null, "diagnosis_conclusion": null, "repair_stable_signal": null, "repair_hypothesis": null, "repair_authorization": null, "previous_failure_ids": []},
+  "write_scope": {"initial_allowed_paths": ["references", "scripts", "tests"], "discovered_paths": []}
+}
