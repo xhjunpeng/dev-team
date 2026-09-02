@@ -1,5 +1,5 @@
 {
-  "protocol_version": 2,
+  "protocol_version": 3,
   "migration": null,
   "task_id": "protocol-test",
   "lifecycle": "active",
@@ -30,6 +30,19 @@
     "state": "开发中",
     "closeout_state": "继续开发",
     "blocks_new_business_goal": true
+  },
+  "delivery_evidence": {
+    "task_kind": "bug",
+    "user_visible_outcome": "协议验证失败能够被稳定捕获并修复",
+    "target_entrypoint": "python3 reproduce.py",
+    "feedback_signal": "python3 reproduce.py",
+    "before_status": "red",
+    "before_evidence": "命令退出码为 1，并输出原始协议错误",
+    "feedback_scope": ["tests"],
+    "target_check": {"status": "pending", "evidence": null},
+    "adjacent_regression": {"status": "pending", "evidence": null},
+    "real_environment": {"status": "not-applicable", "evidence": "协议夹具不依赖外部运行环境"},
+    "unverified_boundaries": []
   },
   "failure_identity": {
     "id": "protocol-failure",

@@ -46,6 +46,7 @@ def state_for(repo: Path, task_id: str = "protocol-test") -> dict:
     state["candidate"]["blocks_new_business_goal"] = True
     state["authorization_card"]["candidate_and_worktree"] = f"main；{repo}"
     state["write_scope"]["initial_allowed_paths"] = ["allowed"]
+    state["delivery_evidence"]["feedback_scope"] = ["allowed/tests"]
     return state
 
 
@@ -62,6 +63,11 @@ def checks(repo: Path) -> tuple[str, ...]:
 
 def failure(index: int) -> dict:
     return {"id": f"failure-{index}", "outcome": "failed", "hypothesis": f"hypothesis {index}", "stable_signal": "python3 reproduce.py", "observed_at": f"2026-09-0{index}T00:00:00Z"}
+
+
+def complete_delivery(state: dict) -> None:
+    state["delivery_evidence"]["target_check"] = {"status": "passed", "evidence": "目标命令退出码为 0"}
+    state["delivery_evidence"]["adjacent_regression"] = {"status": "passed", "evidence": "相邻协议场景通过"}
 
 
 def add_gitlink(repo: Path, name: str, dirty: bool) -> None:
@@ -82,6 +88,16 @@ def main() -> int:
     check("PROTOCOL_RESULT=PASS" in verify(FIXTURES / "valid.json", "--structure-only"), "valid structure")
     check("AUTHORIZATION_CARD_FIELDS_INVALID" in verify(FIXTURES / "missing-card-field.json", "--structure-only", expected=1), "missing card field")
     check("FAILURE_COUNT_MISMATCH" in verify(FIXTURES / "mismatched-failure-count.json", "--structure-only", expected=1), "failure count")
+    with tempfile.TemporaryDirectory() as directory:
+        legacy_v2 = json.loads((FIXTURES / "valid.json").read_text(encoding="utf-8"))
+        legacy_v2["protocol_version"] = 2
+        legacy_v2.pop("delivery_evidence")
+        legacy_path = Path(directory) / "legacy-v2.json"
+        legacy_path.write_text(json.dumps(legacy_v2, ensure_ascii=False), encoding="utf-8")
+        check("PROTOCOL_RESULT=PASS" in verify(legacy_path, "--structure-only"), "v2 remains valid")
+        legacy_v2["protocol_version"] = 3
+        legacy_path.write_text(json.dumps(legacy_v2, ensure_ascii=False), encoding="utf-8")
+        check("STATE_FIELDS_INVALID" in verify(legacy_path, "--structure-only", expected=1), "v3 requires delivery evidence")
     fence = chr(96) * 3
     protocol_document = (ROOT / "references" / "executable-protocol.md").read_text(encoding="utf-8")
     document_example = re.search(rf"{fence}json\n(.*?)\n{fence}", protocol_document, re.DOTALL)
@@ -124,8 +140,90 @@ def main() -> int:
         state_path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
         check("BLOCKS_NEW_BUSINESS_GOAL_MISMATCH" in verify(state_path, *checks(repo), expected=1), "active blocks")
         state["candidate"].update(state="已收口", closeout_state="建议收口", blocks_new_business_goal=False)
+        complete_delivery(state)
         state_path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
         check("PROTOCOL_RESULT=PASS" in verify(state_path, *checks(repo)), "closed candidate")
+
+        state = state_for(repo)
+        state["delivery_evidence"]["before_status"] = "captured"
+        state_path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+        check("DELIVERY_RED_REQUIRED" in verify(state_path, *checks(repo), expected=1), "bug requires red evidence")
+
+        state = state_for(repo)
+        state["failure_identity"] = None
+        state["delivery_evidence"].update(
+            task_kind="feature",
+            feedback_signal="python3 feature-test.py",
+            before_status="captured",
+            before_evidence="只捕获了页面，没有功能失败信号",
+        )
+        state_path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+        check("DELIVERY_RED_REQUIRED" in verify(state_path, *checks(repo), expected=1), "feature requires red evidence")
+
+        state = state_for(repo)
+        state["delivery_evidence"]["feedback_signal"] = "python3 different.py"
+        state_path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+        check("DELIVERY_BUG_SIGNAL_MISMATCH" in verify(state_path, *checks(repo), expected=1), "bug signal matches identity")
+
+        state = state_for(repo)
+        state["candidate"].update(state="已收口", closeout_state="建议收口", blocks_new_business_goal=False)
+        state_path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+        check("DELIVERY_TARGET_NOT_PASSED" in verify(state_path, *checks(repo), expected=1), "closeout requires target evidence")
+        state["delivery_evidence"]["target_check"] = {"status": "passed", "evidence": "目标命令退出码为 0"}
+        state_path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+        check("DELIVERY_REGRESSION_INCOMPLETE" in verify(state_path, *checks(repo), expected=1), "closeout requires adjacent regression")
+        state["delivery_evidence"]["adjacent_regression"] = {"status": "passed", "evidence": "相邻场景通过"}
+        state["delivery_evidence"]["real_environment"] = {"status": "pending", "evidence": None}
+        state_path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+        check("DELIVERY_REAL_ENVIRONMENT_INCOMPLETE" in verify(state_path, *checks(repo), expected=1), "closeout requires real environment")
+
+        state = state_for(repo)
+        state["delivery_evidence"].update(task_kind="visual", before_status="red")
+        state["failure_identity"] = None
+        state_path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+        check("DELIVERY_VISUAL_CAPTURE_REQUIRED" in verify(state_path, *checks(repo), expected=1), "visual requires captured baseline")
+
+        state = state_for(repo)
+        state["candidate"]["state"] = "待判断"
+        state["delivery_evidence"].update(before_status="pending", before_evidence=None)
+        state["delivery_evidence"]["real_environment"] = {"status": "pending", "evidence": None}
+        state_path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+        check("PROTOCOL_RESULT=PASS" in verify(state_path, *checks(repo)), "feedback setup may be pending")
+        feedback_file = repo / "allowed" / "tests" / "repro.py"
+        feedback_file.parent.mkdir()
+        feedback_file.write_text("assert False\n", encoding="utf-8")
+        check("PROTOCOL_RESULT=PASS" in verify(state_path, *checks(repo)), "pending allows feedback changes")
+        shutil.rmtree(feedback_file.parent)
+        (repo / "allowed" / "production.py").write_text("production = True\n", encoding="utf-8")
+        check("DIFF_OUTSIDE_FEEDBACK_SCOPE: allowed/production.py" in verify(state_path, *checks(repo), expected=1), "pending blocks production changes")
+        for bypass_status in ("baseline-green", "captured", "not-applicable"):
+            state["delivery_evidence"].update(before_status=bypass_status, before_evidence=f"伪造状态 {bypass_status}")
+            state_path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+            check("DELIVERY_RED_REQUIRED" in verify(state_path, *checks(repo), expected=1), f"bug rejects {bypass_status} bypass")
+        state["delivery_evidence"].update(before_status="red", before_evidence="反馈信号已经真实失败")
+        state_path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+        check("DIFF_OUTSIDE_FEEDBACK_SCOPE: allowed/production.py" in verify(state_path, *checks(repo), expected=1), "waiting red still blocks production changes")
+        state["delivery_evidence"].update(task_kind="visual", before_status="red")
+        state["failure_identity"] = None
+        state_path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+        check("DELIVERY_VISUAL_CAPTURE_REQUIRED" in verify(state_path, *checks(repo), expected=1), "visual rejects red bypass")
+        state["delivery_evidence"].update(before_status="captured", before_evidence="浏览器基线已捕获")
+        state_path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+        check("DIFF_OUTSIDE_FEEDBACK_SCOPE: allowed/production.py" in verify(state_path, *checks(repo), expected=1), "waiting captured still blocks production changes")
+        (repo / "allowed" / "production.py").unlink()
+        state = state_for(repo)
+        state["candidate"]["state"] = "待判断"
+        state["delivery_evidence"].update(before_status="pending", before_evidence=None, feedback_scope=["outside-feedback"])
+        state["delivery_evidence"]["real_environment"] = {"status": "pending", "evidence": None}
+        state_path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+        check("DELIVERY_FEEDBACK_SCOPE_OUTSIDE_WRITE_SCOPE" in verify(state_path, *checks(repo), expected=1), "feedback scope stays inside write scope")
+        state = state_for(repo)
+        state["candidate"]["state"] = "待判断"
+        state["delivery_evidence"].update(before_status="pending", before_evidence=None)
+        state["delivery_evidence"]["real_environment"] = {"status": "pending", "evidence": None}
+        state["candidate"]["state"] = "开发中"
+        state_path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+        check("DELIVERY_RED_REQUIRED" in verify(state_path, *checks(repo), expected=1), "production implementation requires red")
 
         state = state_for(repo)
         state["failure_identity"] = None
@@ -163,6 +261,11 @@ def main() -> int:
         check("PROTOCOL_RESULT=PASS" in verify(state_path, *default_state_checks), "realtime default")
         check("REPO_NOT_GIT_ROOT" in verify(state_path, "--repo", str(repo / "allowed"), "--skill-root", str(ROOT), expected=1), "repo root")
         state["failure_identity"] = None
+        state["delivery_evidence"].update(
+            task_kind="feature",
+            feedback_signal="python3 feature-test.py",
+            before_evidence="功能尚未实现，目标测试退出码为 1",
+        )
         state_path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
         check("PROTOCOL_RESULT=PASS" in verify(state_path, *checks(repo)), "non-fault pass")
 
@@ -341,6 +444,7 @@ def main() -> int:
         state_path = write_state(repo, state)
         state["protocol_version"] = 1
         state["migration"] = None
+        state.pop("delivery_evidence")
         state.pop("ignored_untracked_policy")
         state["ignored_untracked_at_start"] = []
         state["recovery"] = {
@@ -354,7 +458,7 @@ def main() -> int:
             "previous_failure_ids": [],
         }
         state_path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
-        check("STATE_FIELDS_INVALID" in verify(state_path, *checks(repo), expected=1), "legacy state rejected before migration")
+        check("PROTOCOL_VERSION_INVALID" in verify(state_path, *checks(repo), expected=1), "legacy state rejected before migration")
         check("PROTOCOL_RESULT=PASS" in verify(state_path, "--migrate-v1-state", *checks(repo)), "v1 migration")
         migrated = json.loads(state_path.read_text(encoding="utf-8"))
         check(migrated["protocol_version"] == 2 and migrated["migration"]["from_protocol_version"] == 1, "migration evidence")
@@ -416,6 +520,7 @@ def main() -> int:
         run("git", "-C", str(repo), "commit", "-m", "initial")
         state = state_for(repo)
         state["write_scope"]["initial_allowed_paths"] = ["中文允许"]
+        state["delivery_evidence"]["feedback_scope"] = ["中文允许"]
         state_path = write_state(repo, state)
         tracked.write_text("changed", encoding="utf-8")
         check("PROTOCOL_RESULT=PASS" in verify(state_path, *checks(repo)), "unicode allowed")

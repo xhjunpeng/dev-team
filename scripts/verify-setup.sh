@@ -96,6 +96,7 @@ for label, root in verification_roots:
 protocol_text = (skill_dir / "references/executable-protocol.md").read_text(encoding="utf-8")
 for marker in (
     "唯一机器可验证定义",
+    "delivery_evidence",
     "production_failure_count",
     "write_scope",
     "--structure-only",
@@ -155,6 +156,10 @@ for marker in (
     "隔离判定：复用当前候选 / 主分支直接写 / 当前目录候选分支 / 独立分支与 worktree / 先收口或明确保留",
     "当前收口状态：继续开发 / 建议收口 / 阻塞",
     "是否阻止开始新业务目标：是 / 否",
+    "交付证据",
+    "反馈工具唯一写入范围：",
+    "相邻回归及当前结果：",
+    "真实环境检查及当前结果：",
     "故障派单字段",
     "写入类别：只读诊断 / 诊断工具写入 / 生产修复",
     "恢复目标类型：否 / 诊断 / 生产修复",
@@ -428,9 +433,9 @@ for filename, values in expected.items():
                 raise SystemExit(f"AGENT_EXECUTABLE_PROTOCOL_GATE_MISSING: {path}: {marker}")
         role_markers = {
             "team-explorer.toml": ("专项 Skill", "不安装、启用或模拟", "specialist-routing.md", "recovery.md", "完整读取 `diagnosing-bugs`", "诊断记录", "工具写入请求"),
-            "team-developer.toml": ("最小可维护实现", "技术债变化", "专项 Skill", "Matt `implement`", "自动化测试和功能自检", "specialist-routing.md", "recovery.md", "逐项核对派单字段", "拒绝写入并交回任务协调员"),
-            "team-ui-maker.toml": ("最小可维护实现", "后置覆盖", "技术债变化", "专项 Skill", "`prototype`", "交互、响应式和浏览器自检", "specialist-routing.md", "recovery.md", "逐项核对派单字段", "拒绝并交回任务协调员", "[ui-routing.md](../../references/ui-routing.md) 定义的 Design Read 状态", "Design Read 状态不是“已确认”时", "操作权限：工作区写入", "写入授权：已获得", "Design Read 已确认仅取消二次设计确认，不替代写入授权"),
-            "team-reviewer.toml": ("功能结果", "实现质量", "新增技术债", "专项 Skill", "`code-review`", "独立核查关键测试、功能或浏览器证据", "specialist-routing.md", "recovery.md", "按其核查派单、证据、计数、候选和恢复记录"),
+            "team-developer.toml": ("最小可维护实现", "技术债变化", "专项 Skill", "Matt `implement`", "自动化测试和功能自检", "交付证据", "相邻回归", "真实环境检查", "specialist-routing.md", "recovery.md", "逐项核对派单字段", "拒绝写入并交回任务协调员"),
+            "team-ui-maker.toml": ("最小可维护实现", "后置覆盖", "技术债变化", "专项 Skill", "`prototype`", "交互、响应式和浏览器自检", "交付证据", "浏览器基线", "真实浏览器流程", "specialist-routing.md", "recovery.md", "逐项核对派单字段", "拒绝并交回任务协调员", "[ui-routing.md](../../references/ui-routing.md) 定义的 Design Read 状态", "Design Read 状态不是“已确认”时", "操作权限：工作区写入", "写入授权：已获得", "Design Read 已确认仅取消二次设计确认，不替代写入授权"),
+            "team-reviewer.toml": ("功能结果", "实现质量", "新增技术债", "专项 Skill", "`code-review`", "重新运行反馈信号", "单列未验证边界", "specialist-routing.md", "recovery.md", "按其核查派单、证据、计数、候选和恢复记录"),
         }
         for marker in role_markers.get(filename, ()):
             if marker not in instructions:
