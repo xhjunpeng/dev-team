@@ -85,7 +85,7 @@ def validate_card(card: dict) -> None:
     if card["authorization_message"] != "1" or card["authorization_basis"] != "最新完整十四项卡的精确1":
         fail("AUTHORIZATION_EVIDENCE_INVALID")
     if card["execution_endpoint"] == "已合并并清理":
-        if "调用 `shoukou` 收口审计" not in card["one_time_actions"] + card["automatic_actions"]:
+        if "执行内部收口审计" not in card["one_time_actions"] + card["automatic_actions"]:
             fail("CLOSEOUT_AUDIT_ACTION_MISSING")
 
 
