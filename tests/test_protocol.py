@@ -50,6 +50,10 @@ def state_for(repo: Path, task_id: str = "protocol-test") -> dict:
     return state
 
 
+def v4_state() -> dict:
+    return json.loads((FIXTURES / "v4-frozen-scope-valid.json").read_text(encoding="utf-8"))
+
+
 def write_state(repo: Path, state: dict, task_id: str = "protocol-test") -> Path:
     path = repo / ".dev-team" / "state" / f"{task_id}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -98,6 +102,104 @@ def main() -> int:
         legacy_v2["protocol_version"] = 3
         legacy_path.write_text(json.dumps(legacy_v2, ensure_ascii=False), encoding="utf-8")
         check("STATE_FIELDS_INVALID" in verify(legacy_path, "--structure-only", expected=1), "v3 requires delivery evidence")
+        v3_closeable = json.loads((FIXTURES / "valid.json").read_text(encoding="utf-8"))
+        v3_closeable["candidate"].update(state="可收口", closeout_state="建议收口")
+        legacy_path.write_text(json.dumps(v3_closeable, ensure_ascii=False), encoding="utf-8")
+        check("PROTOCOL_RESULT=PASS" in verify(legacy_path, "--structure-only"), "v3 keeps closeout checks for closed candidates only")
+    check(
+        "PROTOCOL_RESULT=PASS" in verify(FIXTURES / "v4-frozen-scope-valid.json", "--structure-only"),
+        "v4 frozen scope accepts an authorization-bound scope without findings",
+    )
+    with tempfile.TemporaryDirectory() as directory:
+        v4_path = Path(directory) / "v4.json"
+
+        def verify_v4(state: dict, *, expected: int = 0) -> str:
+            v4_path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+            return verify(v4_path, "--structure-only", expected=expected)
+
+        state = v4_state()
+        state["scope_control"]["status"] = "draft"
+        check("SCOPE_CONTROL_STATUS_INVALID" in verify_v4(state, expected=1), "v4 freezes scope before implementation")
+
+        state = v4_state()
+        state.pop("scope_control")
+        check("STATE_FIELDS_INVALID" in verify_v4(state, expected=1), "v4 requires frozen scope control")
+
+        state = v4_state()
+        state.pop("finding_records")
+        check("STATE_FIELDS_INVALID" in verify_v4(state, expected=1), "v4 requires finding records")
+
+        state = v4_state()
+        state["scope_control"]["authorization_card_version"] = "2"
+        check("SCOPE_CONTROL_CARD_VERSION_MISMATCH" in verify_v4(state, expected=1), "v4 binds scope to authorization card")
+
+        state = v4_state()
+        state["delivery_evidence"]["target_check"].pop("baseline_status")
+        check("DELIVERY_TARGET_CHECK_FIELDS_INVALID" in verify_v4(state, expected=1), "v4 records a target baseline")
+
+        state = v4_state()
+        state["finding_records"] = [{"id": "blocker", "summary": "目标失败", "classification": "current-blocker", "causal_relation": "historical-debt", "causal_evidence": "目标命令失败", "action": "repair-current", "status": "open"}]
+        check("CURRENT_BLOCKER_CAUSAL_RELATION_INVALID" in verify_v4(state, expected=1), "current blocker needs causal relation")
+
+        state = v4_state()
+        state["finding_records"] = [{"id": "blocker", "summary": "目标失败", "classification": "current-blocker", "causal_relation": "target-required", "causal_evidence": "", "action": "repair-current", "status": "open"}]
+        check("FINDING_CAUSAL_EVIDENCE_MUST_BE_NONEMPTY_STRING" in verify_v4(state, expected=1), "current blocker needs causal evidence")
+
+        state = v4_state()
+        state["finding_records"] = [{"id": "debt", "summary": "旧债务", "classification": "deferred", "causal_relation": "historical-debt", "causal_evidence": "不影响目标", "action": "repair-current", "status": "open"}]
+        check("DEFERRED_ACTION_INVALID" in verify_v4(state, expected=1), "deferred finding cannot repair current candidate")
+
+        state = v4_state()
+        state["finding_records"] = [{"id": "new-goal", "summary": "新增目标", "classification": "scope-change", "causal_relation": "new-request", "causal_evidence": "不属于当前目标", "action": "stop-for-decision", "status": "open"}]
+        check("OPEN_SCOPE_CHANGE_REQUIRES_BLOCKED_CANDIDATE" in verify_v4(state, expected=1), "open scope change blocks instead of expanding")
+        state["candidate"].update(state="阻塞", closeout_state="阻塞")
+        check("PROTOCOL_RESULT=PASS" in verify_v4(state), "blocked scope change remains record-only")
+        state["finding_records"][0]["action"] = "create-task"
+        check("SCOPE_CHANGE_ACTION_INVALID" in verify_v4(state, expected=1), "scope changes cannot create tasks")
+
+        state = v4_state()
+        state["finding_records"] = [{"id": "blocker", "summary": "目标失败", "classification": "current-blocker", "causal_relation": "target-required", "causal_evidence": "目标命令失败", "action": "repair-current", "status": "open"}]
+        state["write_scope"]["discovered_paths"] = [{"path": "shared", "reason": "共享入口", "business_goal": "验证协议", "discovered_at": "2026-09-03T00:00:00Z", "authorization_card_version": "1", "source_kind": "current-blocker", "source_id": "debt", "causal_evidence": "失败由共享入口造成"}]
+        check("DISCOVERED_PATH_CURRENT_BLOCKER_INVALID" in verify_v4(state, expected=1), "paths can only cite current blockers")
+
+        state = v4_state()
+        state["write_scope"]["discovered_paths"] = [{"path": "shared", "reason": "共享入口", "business_goal": "验证协议", "discovered_at": "2026-09-03T00:00:00Z"}]
+        check("DISCOVERED_PATH_FIELDS_INVALID" in verify_v4(state, expected=1), "v4 paths need causal metadata")
+
+        state = v4_state()
+        state["finding_records"] = [{"id": "debt", "summary": "旧债务", "classification": "deferred", "causal_relation": "historical-debt", "causal_evidence": "不影响目标", "action": "record-only", "status": "open"}]
+        state["write_scope"]["discovered_paths"] = [{"path": "shared", "reason": "共享入口", "business_goal": "验证协议", "discovered_at": "2026-09-03T00:00:00Z", "authorization_card_version": "1", "source_kind": "current-blocker", "source_id": "debt", "causal_evidence": "失败由共享入口造成"}]
+        check("DISCOVERED_PATH_CURRENT_BLOCKER_INVALID" in verify_v4(state, expected=1), "deferred finding cannot expand paths")
+
+        state = v4_state()
+        state["finding_records"] = [{"id": "debt", "summary": "旧债务", "classification": "deferred", "causal_relation": "historical-debt", "causal_evidence": "不影响目标", "action": "record-only", "status": "open"}]
+        state["candidate"].update(state="可收口", closeout_state="建议收口")
+        check("DELIVERY_TARGET_NOT_PASSED" in verify_v4(state, expected=1), "pending fixed checks prevent v4 closeout")
+        for check_name in ("target_check", "adjacent_regression", "real_environment"):
+            state["delivery_evidence"][check_name]["status"] = "passed"
+            state["delivery_evidence"][check_name]["evidence"] = "固定检查通过"
+        check("PROTOCOL_RESULT=PASS" in verify_v4(state), "open deferred finding permits closeout")
+        state["finding_records"].append({"id": "blocker", "summary": "目标失败", "classification": "current-blocker", "causal_relation": "target-required", "causal_evidence": "目标命令失败", "action": "repair-current", "status": "open"})
+        check("OPEN_BLOCKER_PREVENTS_CLOSEOUT" in verify_v4(state, expected=1), "open current blocker prevents closeout")
+        state["finding_records"][-1]["status"] = "resolved"
+        check("PROTOCOL_RESULT=PASS" in verify_v4(state), "resolved current blocker permits closeout")
+
+        state = v4_state()
+        state["write_scope"]["discovered_paths"] = [{"path": "shared", "reason": "目标权威入口", "business_goal": "验证协议", "discovered_at": "2026-09-03T00:00:00Z", "authorization_card_version": "1", "source_kind": "target-authority", "source_id": "scope-control", "causal_evidence": "目标行为由该入口定义"}]
+        check("PROTOCOL_RESULT=PASS" in verify_v4(state), "scope control can authorize target authority path")
+        state["write_scope"]["discovered_paths"][0]["source_id"] = "arbitrary-target"
+        check("DISCOVERED_PATH_TARGET_SOURCE_INVALID" in verify_v4(state, expected=1), "target authority needs fixed source id")
+
+        state = v4_state()
+        state["write_scope"]["discovered_paths"] = [{"path": "shared", "reason": "验收接缝", "business_goal": "验证协议", "discovered_at": "2026-09-03T00:00:00Z", "authorization_card_version": "1", "source_kind": "acceptance-check", "source_id": "target_check", "causal_evidence": "固定目标检查需要该路径"}]
+        check("PROTOCOL_RESULT=PASS" in verify_v4(state), "fixed check can authorize acceptance path")
+        state["write_scope"]["discovered_paths"][0]["source_id"] = "arbitrary-check"
+        check("DISCOVERED_PATH_ACCEPTANCE_SOURCE_INVALID" in verify_v4(state, expected=1), "acceptance path needs fixed check id")
+
+        state = v4_state()
+        state["finding_records"] = [{"id": "blocker", "summary": "目标失败", "classification": "current-blocker", "causal_relation": "target-required", "causal_evidence": "目标命令失败", "action": "repair-current", "status": "open"}]
+        state["write_scope"]["discovered_paths"] = [{"path": "shared", "reason": "当前阻塞", "business_goal": "验证协议", "discovered_at": "2026-09-03T00:00:00Z", "authorization_card_version": "1", "source_kind": "current-blocker", "source_id": "blocker", "causal_evidence": "失败由共享入口造成"}]
+        check("PROTOCOL_RESULT=PASS" in verify_v4(state), "current blocker can authorize path")
     fence = chr(96) * 3
     protocol_document = (ROOT / "references" / "executable-protocol.md").read_text(encoding="utf-8")
     document_example = re.search(rf"{fence}json\n(.*?)\n{fence}", protocol_document, re.DOTALL)
@@ -108,6 +210,14 @@ def main() -> int:
     for role in ("team-developer.toml", "team-explorer.toml", "team-reviewer.toml", "team-ui-maker.toml"):
         instructions = (ROOT / "templates" / "agents" / role).read_text(encoding="utf-8")
         check("主任务是唯一核对聊天授权事实的角色" in instructions, f"{role} delegates chat authorization")
+    protocol_v4_text = (ROOT / "references" / "executable-protocol.md").read_text(encoding="utf-8")
+    for marker in ("v4 范围冻结与发现分流", "current-blocker", "deferred", "scope-change", "delivery-evidence-passed-no-open-blocker"):
+        check(marker in protocol_v4_text, f"v4 protocol documentation includes {marker}")
+    check("deferred 和 scope-change 不能扩张当前范围" in (ROOT / "references" / "dispatch-packet.md").read_text(encoding="utf-8"), "dispatch keeps non-blocking findings out of scope")
+    check("`deferred` 只返回记录" in (ROOT / "templates" / "agents" / "team-developer.toml").read_text(encoding="utf-8"), "developer records deferred findings")
+    check("只提供发现的事实、因果证据和分类建议" in (ROOT / "templates" / "agents" / "team-explorer.toml").read_text(encoding="utf-8"), "explorer only recommends finding classification")
+    check("只报告并建议 `current-blocker`、`deferred` 或 `scope-change` 分类" in (ROOT / "templates" / "agents" / "team-reviewer.toml").read_text(encoding="utf-8"), "reviewer cannot turn findings into tasks")
+    check("`scope-change` 立即停止交回主任务" in (ROOT / "templates" / "agents" / "team-ui-maker.toml").read_text(encoding="utf-8"), "ui maker stops on scope changes")
     with tempfile.TemporaryDirectory() as directory:
         example_state = Path(directory) / "example.json"
         example_state.write_text(document_example.group(1), encoding="utf-8")

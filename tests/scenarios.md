@@ -92,3 +92,9 @@
 88. **局部绿色提前收口**：目标测试通过，但相邻回归或适用的真实环境检查仍待运行。预期候选不能标记“已收口”。
 89. **旧 v2 任务恢复**：运行时已经升级到 v3，但旧任务有固定 v2 状态。预期继续按 v2 schema 校验；主任务不得热切换或补写虚构的交付证据。
 90. **待判断阶段专用范围**：新功能、Bug 或视觉任务仍在建立反馈信号。测试、复现或基线文件位于 `feedback_scope` 时可以继续；生产文件即使位于总写入范围内，只要候选仍是“待判断”且文件不在 `feedback_scope`，实时协议就返回 `DIFF_OUTSIDE_FEEDBACK_SCOPE`。把 before 状态改成 baseline-green、captured、red 或 not-applicable 也不能绕过；取得 red/captured 后必须先进入“开发中”。
+91. **v4 范围冻结**：新任务使用 v4 状态，并把 `scope_control` 绑定到当前授权卡版本、标为 `frozen`，写明范围、排除项和固定完成策略。预期缺少、未冻结或卡版本不一致时被拒绝；执行中不得自行提高目标或完成标准。
+92. **v4 三类发现**：验收发现分别记录为 `current-blocker`、`deferred` 或 `scope-change`。预期当前阻塞必须有因果关系和证据且仅能 `repair-current`；deferred 仅 `record-only`；scope-change 仅 `stop-for-decision`。
+93. **deferred 可收口**：固定检查均已通过，只有 open 的 deferred 记录。预期候选可以“可收口”；旧债务、格式或建议不继续拉长当前任务。
+94. **scope-change 停止且不创建任务**：发现新增业务目标时记录 open scope-change。预期候选与收口状态均为“阻塞”，不自动返工、不自动派单，也不允许 `create-task` 动作。
+95. **因果路径扩张**：v4 首次发现路径必须记录授权卡版本、受限来源 ID 和因果证据。预期只能来自 `scope-control`、固定验收检查或现有 current-blocker；deferred、scope-change 和任意来源 ID 都不能扩张范围。
+96. **v3 收口兼容**：固定为 v3 的旧任务即使候选标为“可收口”且检查仍 pending，也保持旧语义；只有标记“已收口”才强制原有交付检查。v4 的“可收口”继续要求固定检查完成。

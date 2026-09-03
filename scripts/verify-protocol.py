@@ -31,10 +31,12 @@ LIFECYCLES = {"dispatch", "active", "recovery-diagnosis", "recovery-repair", "co
 TASK_KINDS = {"feature", "bug", "refactor", "visual", "documentation", "operations"}
 BEFORE_STATUSES = {"pending", "red", "captured", "baseline-green", "not-applicable"}
 CHECK_STATUSES = {"pending", "passed", "failed", "not-applicable"}
+BASELINE_STATUSES = {"passed", "failed", "not-applicable", "unknown"}
 TASK_ID = re.compile(r"[a-z0-9][a-z0-9-]{2,63}\Z")
 GIT_SHA = re.compile(r"[0-9a-f]{40}\Z")
-CURRENT_PROTOCOL_VERSION = 3
-SUPPORTED_PROTOCOL_VERSIONS = {2, CURRENT_PROTOCOL_VERSION}
+CURRENT_PROTOCOL_VERSION = 4
+SUPPORTED_PROTOCOL_VERSIONS = {2, 3, CURRENT_PROTOCOL_VERSION}
+DELIVERY_EVIDENCE_PROTOCOL_VERSIONS = {3, CURRENT_PROTOCOL_VERSION}
 IGNORED_UNTRACKED_POLICY = "excluded"
 
 
@@ -299,7 +301,7 @@ def current_changes(repo: Path, state_path: Path, baseline: str) -> set[str]:
     return {path for path in changed_paths(repo, baseline) if path != state_relative}
 
 
-def validate_scope(scope: dict, business_goal: str, repo: Path, state_path: Path, baseline: str, check_diff: bool) -> list[str]:
+def validate_scope(scope: dict, business_goal: str, repo: Path, state_path: Path, baseline: str, check_diff: bool, *, protocol_version: int, card_version: str, findings: list[dict] | None) -> list[str]:
     if set(scope) != {"initial_allowed_paths", "discovered_paths"}:
         fail("WRITE_SCOPE_FIELDS_INVALID")
     initial = require_list(scope["initial_allowed_paths"], "INITIAL_ALLOWED_PATHS")
@@ -307,9 +309,13 @@ def validate_scope(scope: dict, business_goal: str, repo: Path, state_path: Path
     allowed = list(initial)
     for path in initial:
         validate_relative_path(path)
+    finding_by_id = {finding["id"]: finding for finding in findings or []}
     for record in discovered:
         record = require_object(record, "DISCOVERED_PATH")
-        if set(record) != {"path", "reason", "business_goal", "discovered_at"}:
+        required = {"path", "reason", "business_goal", "discovered_at"}
+        if protocol_version == CURRENT_PROTOCOL_VERSION:
+            required |= {"authorization_card_version", "source_kind", "source_id", "causal_evidence"}
+        if set(record) != required:
             fail("DISCOVERED_PATH_FIELDS_INVALID")
         path = require_string(record["path"], "DISCOVERED_PATH")
         validate_relative_path(path)
@@ -317,6 +323,24 @@ def validate_scope(scope: dict, business_goal: str, repo: Path, state_path: Path
         if require_string(record["business_goal"], "DISCOVERED_PATH_BUSINESS_GOAL") != business_goal:
             fail("DISCOVERED_PATH_BUSINESS_GOAL_MISMATCH")
         validate_timestamp(record["discovered_at"], "DISCOVERED_PATH_TIME")
+        if protocol_version == CURRENT_PROTOCOL_VERSION:
+            if require_string(record["authorization_card_version"], "DISCOVERED_PATH_CARD_VERSION") != card_version:
+                fail("DISCOVERED_PATH_CARD_VERSION_MISMATCH")
+            source_kind = require_string(record["source_kind"], "DISCOVERED_PATH_SOURCE_KIND")
+            if source_kind not in {"target-authority", "acceptance-check", "current-blocker"}:
+                fail("DISCOVERED_PATH_SOURCE_KIND_INVALID")
+            source_id = require_string(record["source_id"], "DISCOVERED_PATH_SOURCE_ID")
+            require_string(record["causal_evidence"], "DISCOVERED_PATH_CAUSAL_EVIDENCE")
+            if source_kind == "target-authority":
+                if source_id != "scope-control":
+                    fail("DISCOVERED_PATH_TARGET_SOURCE_INVALID")
+            elif source_kind == "acceptance-check":
+                if source_id not in {"target_check", "adjacent_regression", "real_environment"}:
+                    fail("DISCOVERED_PATH_ACCEPTANCE_SOURCE_INVALID")
+            else:
+                finding = finding_by_id.get(source_id)
+                if finding is None or finding["classification"] != "current-blocker":
+                    fail("DISCOVERED_PATH_CURRENT_BLOCKER_INVALID")
         allowed.append(path)
     if len(allowed) != len(set(allowed)):
         fail("WRITE_SCOPE_PATH_DUPLICATE")
@@ -352,9 +376,63 @@ def validate_closeout(candidate: dict) -> None:
         fail("BLOCKS_NEW_BUSINESS_GOAL_MISMATCH")
 
 
-def validate_check(value: object, label: str, *, target: bool = False) -> str:
+def validate_scope_control(value: object, card: dict) -> None:
+    scope_control = require_object(value, "SCOPE_CONTROL")
+    if set(scope_control) != {"authorization_card_version", "status", "in_scope", "out_of_scope", "completion_policy"}:
+        fail("SCOPE_CONTROL_FIELDS_INVALID")
+    if require_string(scope_control["authorization_card_version"], "SCOPE_CONTROL_CARD_VERSION") != card["version"]:
+        fail("SCOPE_CONTROL_CARD_VERSION_MISMATCH")
+    if scope_control["status"] != "frozen":
+        fail("SCOPE_CONTROL_STATUS_INVALID")
+    for field in ("in_scope", "out_of_scope"):
+        for item in require_list(scope_control[field], f"SCOPE_CONTROL_{field.upper()}"):
+            require_string(item, f"SCOPE_CONTROL_{field.upper()}_ITEM")
+    if require_string(scope_control["completion_policy"], "SCOPE_CONTROL_COMPLETION_POLICY") != "delivery-evidence-passed-no-open-blocker":
+        fail("SCOPE_CONTROL_COMPLETION_POLICY_INVALID")
+
+
+def validate_findings(value: object, candidate: dict) -> list[dict]:
+    findings = require_list(value, "FINDING_RECORDS", allow_empty=True)
+    finding_ids: set[str] = set()
+    for finding in findings:
+        finding = require_object(finding, "FINDING_RECORD")
+        if set(finding) != {"id", "summary", "classification", "causal_relation", "causal_evidence", "action", "status"}:
+            fail("FINDING_RECORD_FIELDS_INVALID")
+        finding_id = require_string(finding["id"], "FINDING_ID")
+        if finding_id in finding_ids:
+            fail("FINDING_ID_DUPLICATE")
+        finding_ids.add(finding_id)
+        require_string(finding["summary"], "FINDING_SUMMARY")
+        classification = require_string(finding["classification"], "FINDING_CLASSIFICATION")
+        causal_relation = require_string(finding["causal_relation"], "FINDING_CAUSAL_RELATION")
+        require_string(finding["causal_evidence"], "FINDING_CAUSAL_EVIDENCE")
+        action = require_string(finding["action"], "FINDING_ACTION")
+        if finding["status"] not in {"open", "resolved"}:
+            fail("FINDING_STATUS_INVALID")
+        if classification == "current-blocker":
+            if causal_relation not in {"target-required", "introduced-by-current-diff", "worsened-by-current-diff"}:
+                fail("CURRENT_BLOCKER_CAUSAL_RELATION_INVALID")
+            if action != "repair-current":
+                fail("CURRENT_BLOCKER_ACTION_INVALID")
+        elif classification == "deferred":
+            if action != "record-only":
+                fail("DEFERRED_ACTION_INVALID")
+        elif classification == "scope-change":
+            if action != "stop-for-decision":
+                fail("SCOPE_CHANGE_ACTION_INVALID")
+            if finding["status"] == "open" and (candidate["state"] != "阻塞" or candidate["closeout_state"] != "阻塞"):
+                fail("OPEN_SCOPE_CHANGE_REQUIRES_BLOCKED_CANDIDATE")
+        else:
+            fail("FINDING_CLASSIFICATION_INVALID")
+    return findings
+
+
+def validate_check(value: object, label: str, *, target: bool = False, require_baseline: bool = False) -> str:
     check = require_object(value, label)
-    if set(check) != {"status", "evidence"}:
+    required = {"status", "evidence"}
+    if require_baseline:
+        required |= {"signal", "baseline_status", "baseline_evidence"}
+    if set(check) != required:
         fail(f"{label}_FIELDS_INVALID")
     status = check["status"]
     if status not in CHECK_STATUSES or (target and status == "not-applicable"):
@@ -365,6 +443,17 @@ def validate_check(value: object, label: str, *, target: bool = False) -> str:
             fail(f"{label}_PENDING_EVIDENCE_INVALID")
     else:
         require_string(evidence, f"{label}_EVIDENCE")
+    if require_baseline:
+        require_string(check["signal"], f"{label}_SIGNAL")
+        baseline_status = check["baseline_status"]
+        if baseline_status not in BASELINE_STATUSES:
+            fail(f"{label}_BASELINE_STATUS_INVALID")
+        baseline_evidence = check["baseline_evidence"]
+        if baseline_status == "unknown":
+            if baseline_evidence is not None:
+                fail(f"{label}_BASELINE_UNKNOWN_EVIDENCE_INVALID")
+        else:
+            require_string(baseline_evidence, f"{label}_BASELINE_EVIDENCE")
     return status
 
 
@@ -377,6 +466,8 @@ def validate_delivery_evidence(
     baseline: str,
     allowed_paths: list[str],
     check_diff: bool,
+    *,
+    protocol_version: int,
 ) -> None:
     evidence = require_object(evidence, "DELIVERY_EVIDENCE")
     required = {
@@ -418,9 +509,10 @@ def validate_delivery_evidence(
             fail("DELIVERY_FEEDBACK_SCOPE_OUTSIDE_WRITE_SCOPE")
     if len(feedback_scope) != len(set(feedback_scope)):
         fail("DELIVERY_FEEDBACK_SCOPE_DUPLICATE")
-    target_status = validate_check(evidence["target_check"], "DELIVERY_TARGET_CHECK", target=True)
-    regression_status = validate_check(evidence["adjacent_regression"], "DELIVERY_ADJACENT_REGRESSION")
-    environment_status = validate_check(evidence["real_environment"], "DELIVERY_REAL_ENVIRONMENT")
+    require_baseline = protocol_version == CURRENT_PROTOCOL_VERSION
+    target_status = validate_check(evidence["target_check"], "DELIVERY_TARGET_CHECK", target=True, require_baseline=require_baseline)
+    regression_status = validate_check(evidence["adjacent_regression"], "DELIVERY_ADJACENT_REGRESSION", require_baseline=require_baseline)
+    environment_status = validate_check(evidence["real_environment"], "DELIVERY_REAL_ENVIRONMENT", require_baseline=require_baseline)
     boundaries = require_list(evidence["unverified_boundaries"], "DELIVERY_UNVERIFIED_BOUNDARIES", allow_empty=True)
     for boundary in boundaries:
         require_string(boundary, "DELIVERY_UNVERIFIED_BOUNDARY")
@@ -433,7 +525,7 @@ def validate_delivery_evidence(
         )
         if outside_feedback:
             fail(f"DIFF_OUTSIDE_FEEDBACK_SCOPE: {', '.join(outside_feedback)}")
-    if candidate["state"] == "已收口":
+    if candidate["state"] == "已收口" or (protocol_version == CURRENT_PROTOCOL_VERSION and candidate["state"] == "可收口"):
         if target_status != "passed":
             fail("DELIVERY_TARGET_NOT_PASSED")
         if regression_status not in {"passed", "not-applicable"}:
@@ -494,7 +586,12 @@ def validate(state: dict, repo: Path, state_path: Path, state_dir: Path, check_d
     protocol_version = state.get("protocol_version")
     if protocol_version not in SUPPORTED_PROTOCOL_VERSIONS:
         fail("PROTOCOL_VERSION_INVALID")
-    required = base_required | ({"delivery_evidence"} if protocol_version == CURRENT_PROTOCOL_VERSION else set())
+    required_fields_by_version = {
+        2: base_required,
+        3: base_required | {"delivery_evidence"},
+        CURRENT_PROTOCOL_VERSION: base_required | {"delivery_evidence", "scope_control", "finding_records"},
+    }
+    required = required_fields_by_version[protocol_version]
     if set(state) != required:
         fail("STATE_FIELDS_INVALID")
     validate_migration(state["migration"], protocol_version)
@@ -513,9 +610,29 @@ def validate(state: dict, repo: Path, state_path: Path, state_dir: Path, check_d
     validate_failures(state["failure_identity"], state["failure_records"], state["production_failure_count"], require_object(state["recovery"], "RECOVERY"), state["lifecycle"], card)
     validate_location(state, state_path, state_dir, check_location)
     validate_closeout(candidate)
-    allowed_paths = validate_scope(require_object(state["write_scope"], "WRITE_SCOPE"), card["business_goal"], repo, state_path, baseline, check_diff)
+    findings: list[dict] | None = None
     if protocol_version == CURRENT_PROTOCOL_VERSION:
-        validate_delivery_evidence(state["delivery_evidence"], state["failure_identity"], candidate, repo, state_path, baseline, allowed_paths, check_diff)
+        validate_scope_control(state["scope_control"], card)
+        findings = validate_findings(state["finding_records"], candidate)
+    allowed_paths = validate_scope(
+        require_object(state["write_scope"], "WRITE_SCOPE"),
+        card["business_goal"],
+        repo,
+        state_path,
+        baseline,
+        check_diff,
+        protocol_version=protocol_version,
+        card_version=card["version"],
+        findings=findings,
+    )
+    if protocol_version in DELIVERY_EVIDENCE_PROTOCOL_VERSIONS:
+        validate_delivery_evidence(
+            state["delivery_evidence"], state["failure_identity"], candidate, repo, state_path, baseline,
+            allowed_paths, check_diff, protocol_version=protocol_version,
+        )
+    if protocol_version == CURRENT_PROTOCOL_VERSION and candidate["state"] in {"可收口", "已收口"}:
+        if any(finding["status"] == "open" and finding["classification"] in {"current-blocker", "scope-change"} for finding in findings or []):
+            fail("OPEN_BLOCKER_PREVENTS_CLOSEOUT")
 
 
 def main() -> int:
