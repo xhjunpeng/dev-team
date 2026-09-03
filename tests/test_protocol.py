@@ -255,6 +255,19 @@ def main() -> int:
         state_path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
         check("PROTOCOL_RESULT=PASS" in verify(state_path, *checks(repo)), "custom endpoint pass")
         state = state_for(repo)
+        state["authorization_card"].update(
+            execution_endpoint="已合并并清理",
+            automatic_actions=["复验", "执行内部收口审计"],
+        )
+        state_path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+        check("PROTOCOL_RESULT=PASS" in verify(state_path, *checks(repo)), "internal closeout audit pass")
+        state["authorization_card"]["automatic_actions"] = ["复验"]
+        state_path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+        check("CLOSEOUT_AUDIT_ACTION_MISSING" in verify(state_path, *checks(repo), expected=1), "closeout audit required")
+        state["authorization_card"]["automatic_actions"] = ["复验", "调用 `shoukou` 收口审计"]
+        state_path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+        check("CLOSEOUT_AUDIT_ACTION_MISSING" in verify(state_path, *checks(repo), expected=1), "legacy closeout audit rejected")
+        state = state_for(repo)
         state_path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
         check("PROTOCOL_RESULT=PASS" in verify(state_path, *checks(repo)), "default pass")
         default_state_checks = ("--repo", str(repo), "--skill-root", str(ROOT))

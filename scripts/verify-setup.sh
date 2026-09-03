@@ -104,6 +104,11 @@ for marker in (
 ):
     if marker not in protocol_text:
         raise SystemExit(f"EXECUTABLE_PROTOCOL_MARKER_MISSING: {marker}")
+protocol_validator_text = (skill_dir / "scripts/verify-protocol.py").read_text(encoding="utf-8")
+if '"执行内部收口审计"' not in protocol_validator_text:
+    raise SystemExit("INTERNAL_CLOSEOUT_AUDIT_PROTOCOL_MARKER_MISSING")
+if "调用 `shoukou` 收口审计" in protocol_validator_text:
+    raise SystemExit("LEGACY_CLOSEOUT_AUDIT_PROTOCOL_MARKER_PRESENT")
 protocol_test = subprocess.run(
     (sys.executable, str(skill_dir / "tests" / "test_protocol.py")),
     text=True,
