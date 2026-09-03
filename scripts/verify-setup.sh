@@ -139,7 +139,7 @@ for marker in (
     "发送最终回复前",
     "仍有子 Agent 运行时只发进度并继续等待",
     "真实停止时必须说明原因、当前候选状态、推荐下一步和需要用户决定的事项",
-    "收口授权判定以 [specialist-routing.md](references/specialist-routing.md) 为准",
+    "内部收口审计核验，并且必须逐项列入当前 `dev-team` 授权卡",
     "收口状态（继续开发 / 建议收口 / 阻塞）、是否阻止开始新业务目标",
 ):
     if marker not in skill_text:
@@ -228,7 +228,7 @@ for marker in (
     "授权只覆盖当前版本的授权卡",
     "没有列出的提交、推送、PR、合并或删除不能借连续授权执行",
     "同一故障仍以 [recovery.md](recovery.md) 的熔断为准",
-    "“本次一次性授权动作”或“满足条件后自动执行的动作”必须逐字包含“调用 `shoukou` 收口审计”，缺失则卡不完整，不得启动",
+    "“本次一次性授权动作”或“满足条件后自动执行的动作”必须逐字包含“执行内部收口审计”，缺失则卡不完整，不得启动",
     "语义授权边界",
     "不是冻结的文件白名单",
     "按既有锁文件恢复本地依赖",
@@ -381,13 +381,35 @@ for marker in (
     "不自动安装、启用、禁用或更新任何 Skill",
     "故障诊断门槛",
     "不得派发生产修复",
-    "先做审计；当前有效连续卡已准确覆盖当前候选的提交、合并、清理动作且审计前提通过时消费既有授权。未覆盖、失效、对象不一致或审计前提失败时停止并重新出卡/取得授权；卡的有效性见 `dispatch-packet.md`",
+    "按 `git-lifecycle.md` 执行内部收口审计；当前卡必须逐项覆盖提交、推送、PR、合并或清理，未覆盖、失效、对象不一致或事实无法核验时停止并重新出卡",
 ):
     if marker not in specialist_text:
         raise SystemExit(f"SPECIALIST_ROUTING_MARKER_MISSING: {marker}")
 
+workflow_sources = (
+    skill_text,
+    (skill_dir / "references/routing.md").read_text(encoding="utf-8"),
+    (skill_dir / "references/project-discovery.md").read_text(encoding="utf-8"),
+    (skill_dir / "references/engineering-quality.md").read_text(encoding="utf-8"),
+    protocol_text,
+    dispatch_text,
+    git_lifecycle_text,
+    specialist_text,
+    (skill_dir / "templates/agents/team-developer.toml").read_text(encoding="utf-8"),
+)
+for marker in ("全局 AGENTS", "项目规则优先", "适用的系统、全局和项目规则始终优先", "全局和项目 Git 规则是权威来源"):
+    if any(marker in source for source in workflow_sources):
+        raise SystemExit(f"INDEPENDENT_WORKFLOW_COUPLING: {marker}")
+if "当前开发任务唯一的流程来源" not in skill_text:
+    raise SystemExit("INDEPENDENT_WORKFLOW_BOUNDARY_MISSING")
+
 scenario_text = (skill_dir / "tests/scenarios.md").read_text(encoding="utf-8")
-for marker in ("明确机械小修", "未知根因 Bug", "普通功能实现", "项目未采用 Matt 体系", "需求与计划就绪", "只读故障诊断", "测试与验收分工", "未知根因先诊断", "错误的诊断工具路由", "第三次失败后的伪装修复", "有新条件的恢复目标", "连续本地候选", "连续 PR 可评审", "连续验收回环", "未列合并", "明确条件合并与当前候选清理", "未调用 dev-team 的首次门禁", "有效连续收口", "未覆盖或失效的收口", "调用 dev-team 的唯一首次授权卡", "UI 无关键选择直通", "UI 关键选择停止", "所有子角色缺少父卡记录", "替代卡与跨会话恢复", "准确候选动作", "自定义字段、状态或收口动作", "UI Design Read 已确认但写入权限未获得", "共享权威入口", "锁文件依赖恢复", "代码函数/文件迁移继续", "数据、数据库结构、部署类迁移停止", "真实越界", "源码候选目录验证", "精确确认后的批次续跑", "子 Agent 批次返回但仍有剩余", "达到连续执行终点", "真实停止条件优先", "已验证主分支改动", "新目标遇到已完成脏改动", "同一未完成目标复用候选", "新代码目标的候选分支", "脏目录或并行目标隔离", "子 Agent 收口事实回报", "已调用 dev-team 但缺围栏", "子 Agent 仍运行却结束回合"):
+closeout_sources = (*workflow_sources, scenario_text)
+if any("shoukou" in source for source in closeout_sources):
+    raise SystemExit("INDEPENDENT_CLOSEOUT_EXTERNAL_SKILL_DEPENDENCY")
+if "内部收口审计" not in git_lifecycle_text:
+    raise SystemExit("INDEPENDENT_CLOSEOUT_AUDIT_MISSING")
+for marker in ("明确机械小修", "未知根因 Bug", "普通功能实现", "项目未采用 Matt 体系", "需求与计划就绪", "只读故障诊断", "测试与验收分工", "未知根因先诊断", "错误的诊断工具路由", "第三次失败后的伪装修复", "有新条件的恢复目标", "连续本地候选", "连续 PR 可评审", "连续验收回环", "未列合并", "明确条件合并与当前候选清理", "未调用 dev-team 时不介入", "有效连续收口", "未覆盖或失效的收口", "调用 dev-team 的唯一首次授权卡", "UI 无关键选择直通", "UI 关键选择停止", "所有子角色缺少父卡记录", "替代卡与跨会话恢复", "准确候选动作", "自定义字段、状态或收口动作", "UI Design Read 已确认但写入权限未获得", "共享权威入口", "锁文件依赖恢复", "代码函数/文件迁移继续", "数据、数据库结构、部署类迁移停止", "真实越界", "源码候选目录验证", "精确确认后的批次续跑", "子 Agent 批次返回但仍有剩余", "达到连续执行终点", "真实停止条件优先", "已验证主分支改动", "新目标遇到已完成脏改动", "同一未完成目标复用候选", "新代码目标的候选分支", "脏目录或并行目标隔离", "子 Agent 收口事实回报", "已调用 dev-team 但缺围栏", "子 Agent 仍运行却结束回合"):
     if marker not in scenario_text:
         raise SystemExit(f"SPECIALIST_SCENARIO_MISSING: {marker}")
 for line in scenario_text.splitlines():
