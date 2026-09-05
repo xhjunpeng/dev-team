@@ -6,57 +6,25 @@ disable-model-invocation: true
 
 # 通用开发协作
 
-你是本次任务的“任务协调员”。主任务保留需求、授权、Git 候选与 worktree 决策、提交/合并/清理决策和最终复核。任何项目文件写入默认派给一个合适的子 Agent；只有用户在最新动手清单中明确授权“主任务直接写”时，主任务才可作为唯一写入者。
+主任务负责需求、授权、准确候选、阶段安排和最终复核。先分开判断任务难度与操作影响，再选择最小团队：局部可逆小修由主任务直做；普通功能由一个执行员实现；高风险任务由全新只读验收员独立验收。同一业务目标同一阶段只有一个写入者，子 Agent 不创建下一层 Agent，默认最多两个子 Agent 同时活动。
 
-## 先守边界
+## 开始与恢复
 
-- 用户显式调用本 Skill 后，本 Skill 是当前开发任务唯一的流程来源：授权卡、Agent、Git、候选、测试、验收、收口和停止条件均由本 Skill 定义。本 Skill 不继承、不读取或不执行全局规则、项目 `AGENTS.md`、`CLAUDE.md` 中的开发流程；平台实际权限和外部系统的客观限制仍须如实核验。
-- 本 Skill 自己定义首次执行确认。首次写入、启动子 Agent、创建候选或其他持续状态变化前，主任务必须按 [dispatch-packet.md](references/dispatch-packet.md) 展示最新完整十四项卡并取得用户精确 `1`；确认后才可按卡连续执行。
-- 子 Agent 不创建下一层 Agent。默认最多两个子 Agent 同时活动，同一可变目标最多一个写入者。
-- 主任务必须检查实际来源、变更、工程质量和验证结果；子 Agent 的总结不是最终验收。
-- 纯只读回答、查找和检查由主任务直接完成，不启动子 Agent；项目代码、UI、测试、配置、脚本、迁移和文档的写入按路由派单。机械小修在最新完整十四项卡收到精确 `1` 后只派一个开发执行员，不额外派勘察员或独立验收员。
-- 专项 Skill 只提供当前阶段的方法，不产生授权或成为第二个协调中心；每个阶段最多一个主要专项 Skill。
-
-## 路由
-
-1. 先读取 [routing.md](references/routing.md)，选择快速、标准或严格路径。流程可以随新证据升级，也可以降级。
-2. 任务涉及写入、运行环境或项目约束时，读取 [project-discovery.md](references/project-discovery.md)。只发现当前事实，不缓存项目专属副本。
-3. 任何代码、UI、测试、配置、脚本或迁移写入都读取 [engineering-quality.md](references/engineering-quality.md)，先确定权威实现、复用项和替换/删除项；质量门禁未通过不算完成。
-4. 派单、候选、交付证据或失败状态必须读取 [executable-protocol.md](references/executable-protocol.md)，并以固定任务状态路径运行其校验器，验证可观察的授权、候选、交付、失败和范围事实；它不替代真实聊天授权、业务运行或平台权限。
-5. 当前阶段可能需要需求澄清、测试、诊断、UI、架构、安全、研究、冲突处理、评审或收口方法时，读取 [specialist-routing.md](references/specialist-routing.md)；清楚任务可以明确不使用额外 Skill。
-6. 每个新业务目标、候选恢复或写入前隔离判断都读取 [git-lifecycle.md](references/git-lifecycle.md) 和 [candidate-ledger.md](references/candidate-ledger.md)。主任务先判断复用当前候选、新建分支、使用独立 worktree，还是先提示收口；建议不等于执行 Git 动作。
-7. 任何派单、候选创建或项目写入前，读取 [dispatch-packet.md](references/dispatch-packet.md)。主任务必须按其中的十四项授权卡结构化文本模板，在单个 fenced `text` 代码块内按原字段顺序渲染：开头行必须字面为 <code>```text</code>，闭合行必须字面为 <code>```</code>；普通 Markdown 标题、段落或列表不是授权卡，不得请求或接受精确 `1`。长动作拆成缩进短项，并在用户对最新完整卡回复精确 `1` 后，才启动子 Agent 或产生持续状态；普通模式只可简化卡内动作内容，不得省略卡或父卡授权传递。由主任务确认需求与计划就绪；任务包或父卡记录不完整就留在主任务。
-8. 选择模型或思考强度时，读取 [model-policy.md](references/model-policy.md)。不要自动切换主任务模型。
-9. 涉及视觉、布局、交互、响应式、动效或组件状态时，优先读取 [ui-routing.md](references/ui-routing.md)；其 UI 专项规则优先于通用快速路径。
-10. 故障任务读取 [specialist-routing.md](references/specialist-routing.md) 和 [recovery.md](references/recovery.md)，分别确定诊断路由与故障状态。
+1. 读取 [routing.md](references/routing.md) 选择快速、标准或严格路径。讨论和分析保持只读；明确普通执行请求可授权范围内必要读写验证。高风险动作须有准确对象、影响、回滚和明确同意。授权规则见 [dispatch-packet.md](references/dispatch-packet.md)，`1` 是快捷方式，不是唯一同意表达。
+2. 写入或依赖项目事实时读取 [project-discovery.md](references/project-discovery.md)：确认适用项目技术约束、真实入口与已有成果。指令冲突按平台优先级处理；本 Skill 提供协作流程，项目的技术、安全、构建与验收约束仍适用，同一事项不叠加重复流程。
+3. 涉及候选、派单或写入时读取 [executable-protocol.md](references/executable-protocol.md) 与 [candidate-ledger.md](references/candidate-ledger.md)，使用一份固定任务记录。新任务用 v5，已有 v2–v4 保持原版本；恢复时重核可能变化的授权、Git、范围、模型与权限事实。
+4. 写入前读取 [engineering-quality.md](references/engineering-quality.md)，确定权威实现、复用和替换项、固定验收及已批准例外。目标、范围或验收未决时留在主任务。
+5. 创建、恢复或处理 Git 候选时读取 [git-lifecycle.md](references/git-lifecycle.md)；准备派单时读取 [dispatch-packet.md](references/dispatch-packet.md) 和 [model-policy.md](references/model-policy.md)。主任务保留用户选定模型，派发参数必须与真实可用能力一致。
+6. 需要专业方法时读取 [specialist-routing.md](references/specialist-routing.md)，每阶段最多一个主要专项 Skill。UI 读取 [ui-routing.md](references/ui-routing.md)；Bug 或多次失败读取 [recovery.md](references/recovery.md)。
 
 ## 阶段职责
 
-- **主任务**始终负责需求澄清、计划、授权、候选和最终整合；子 Agent 不重新决定需求或计划。
-- **执行员**完成其唯一写入范围内的实现与自检；测试和独立验收不是新的协调角色。
-- **独立验收员**只判断稳定候选的证据；最终结论仍由主任务整合。
-- 需求与计划的具体就绪字段以 [dispatch-packet.md](references/dispatch-packet.md) 为准；故障路由以 [specialist-routing.md](references/specialist-routing.md) 为准，故障身份、计数和熔断以 [recovery.md](references/recovery.md) 为准。
+- 主任务对聊天授权事实负责，并核对真实 diff、命令结果和当前候选；协议通过和执行员总结都不能代替验收。
+- 项目勘察员只回答明确事实问题；普通功能使用一个开发执行员，需设计判断的页面使用界面制作员。角色默认模型与实际能力检查统一见模型策略。
+- 独立验收员从全新上下文检查稳定候选，分别报告功能、实现质量和未验证边界。它只建议发现分类，不自行扩大范围或派单。
 
-## 中文角色
+## 执行到授权终点
 
-- **项目勘察员**：只读收集代码、运行态、文档、Git 候选和外部事实。
-- **开发执行员**：在边界、改动形状和验收已明确后完成最小可维护的非 UI 实现，或已有精确答案的机械 UI 修改。
-- **界面制作员**：负责 UI 方向与前端制作，以 `finesse-ui` 为默认设计权威。
-- **独立验收员**：从全新上下文只读检查稳定候选，分别判断功能结果与实现质量，报告 P0-P3 和未验证边界。
+已授权范围内的必要准备、实现、验证和返工连续执行。子 Agent 返回是阶段完成；主任务仍有授权工作时继续，不要求用户再发消息唤醒。仍有活动子 Agent 时只发进度并等待。只有达到终点或命中真实停止条件才结束，停止时说明原因、候选状态、已保留结果和准确下一步。
 
-每次派单必须包含以下独立字段；缺失时中文 Agent 应拒绝执行：
-
-```text
-协作模式：已启用
-任务包版本：1
-使用角色：<中文角色名>
-```
-
-## 完成与收口
-
-- 发送最终回复前，主任务必须依 [dispatch-packet.md](references/dispatch-packet.md) 检查活动子 Agent、执行终点和停止条件：仍有子 Agent 运行时只发进度并继续等待；终点未到且未命中停止条件时继续恢复或派发；只有终点已达到或真实停止条件已命中时才可结束。真实停止时必须说明原因、当前候选状态、推荐下一步和需要用户决定的事项，不等待用户发消息唤醒本应继续的任务。
-- 快速路径完成于直接结果、工程质量通过和相称验证。
-- 标准路径完成于明确改动、工程质量通过、针对性验证以及主任务复核。
-- 严格路径还需要独立验收同时确认功能结果与实现质量、回滚边界和当前候选证据。
-- 候选完成、合并、暂停、放弃或准备开始新业务目标时，主任务必须基于候选台账输出收口状态（继续开发 / 建议收口 / 阻塞）、是否阻止开始新业务目标和下一步建议；新业务目标遇到不属于同一未完成目标的脏改动时不得启动。实际提交、推送、PR、合并和清理由 [git-lifecycle.md](references/git-lifecycle.md) 的内部收口审计核验，并且必须逐项列入当前 `dev-team` 授权卡。
-- 故障的熔断与恢复以 [recovery.md](references/recovery.md) 为准。
+固定检查完成且没有当前阻塞或未决范围变化，即停止返工；无关发现只记录。输出收口状态（继续开发 / 建议收口 / 阻塞）与是否阻止新目标。提交、推送、PR、合并和清理分别核对动作与准确对象；本地候选完成、PR 可评审都不自动授权后续 Git 动作。

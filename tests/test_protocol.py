@@ -88,6 +88,250 @@ def add_gitlink(repo: Path, name: str, dirty: bool) -> None:
     run("git", "-C", str(repo), "add", name)
 
 
+def v5_authorization_scenarios() -> None:
+    """Exercise grants against real writes; chat truth remains the coordinator's job."""
+    with tempfile.TemporaryDirectory() as directory:
+        repo = Path(directory) / "repo"
+        repo.mkdir()
+        run("git", "init", "-b", "main", str(repo))
+        run("git", "-C", str(repo), "config", "user.email", "test@example.invalid")
+        run("git", "-C", str(repo), "config", "user.name", "Protocol test")
+        run("git", "-C", str(repo), "config", "dev-team.primaryBranch", "main")
+        (repo / "allowed").mkdir()
+        target = repo / "allowed" / "initial.txt"
+        target.write_text("initial\n", encoding="utf-8")
+        run("git", "-C", str(repo), "add", ".")
+        run("git", "-C", str(repo), "commit", "-m", "initial")
+
+        def fresh_state() -> dict:
+            state = json.loads((FIXTURES / "v5-explicit-request-valid.json").read_text(encoding="utf-8"))
+            state["skill_root"] = str(ROOT)
+            state["git_baseline"] = run("git", "-C", str(repo), "rev-parse", "HEAD").strip()
+            state["candidate"].update(branch="main", worktree=str(repo), isolation="主分支直接写")
+            state["authorization_card"]["candidate_and_worktree"] = f"main；{repo}"
+            return state
+
+        target.write_text("corrected\n", encoding="utf-8")
+        legacy = fresh_state()
+        legacy["protocol_version"] = 4
+        legacy.pop("task_assessment")
+        legacy.pop("authorization_context")
+        legacy.pop("collaboration")
+        legacy.pop("quality_exceptions")
+        legacy.pop("diagnostic_events")
+        legacy["delivery_evidence"].pop("verification_mode")
+        # Demonstrate the actual old authorization behavior, beyond version rejection.
+        check("AUTHORIZATION_EVIDENCE_INVALID" in verify(write_state(repo, legacy), *checks(repo), expected=1), "v4 still rejects natural-language authorization")
+        legacy["authorization_card"].update(authorization_message="1", authorization_basis="最新完整十四项卡的精确1")
+        check("PROTOCOL_RESULT=PASS" in verify(write_state(repo, legacy), *checks(repo)), "same real write passes unchanged v4 with its exact shortcut")
+        print("V4_AUTHORIZATION_BEHAVIOR=PASS (natural language rejected; exact shortcut accepted)", flush=True)
+
+        failures = []
+
+        def expect_case(name: str, state: dict, expected: int, signal: str) -> None:
+            result = subprocess.run(
+                (sys.executable, str(VERIFY), "--state", str(write_state(repo, state)), *checks(repo)),
+                text=True, capture_output=True, env=NO_BYTECODE,
+            )
+            output = result.stdout + result.stderr
+            if result.returncode != expected or signal not in output:
+                failures.append(f"{name}: expected exit {expected} / {signal}, got exit {result.returncode}: {output.strip()}")
+
+        expect_case("explicit request permits reversible file write", fresh_state(), 0, "PROTOCOL_RESULT=PASS")
+
+        state = fresh_state()
+        state["authorization_context"]["intent"] = "discuss"
+        state["authorization_card"]["authorization_message"] = "讨论一下这份文档应该怎么改"
+        expect_case("discussion cannot authorize a real write", state, 1, "DISCUSSION_CANNOT_WRITE")
+
+        state = fresh_state()
+        state["authorization_context"]["planned_actions"] = [{"action": "workspace-write", "target": "allowed/other.txt"}]
+        expect_case("grant binds the exact target", state, 1, "PLANNED_ACTION_NOT_AUTHORIZED")
+
+        state = fresh_state()
+        state["authorization_context"]["granted_actions"] = [{"action": "pr-create", "target": "origin:codex/example->main"}]
+        state["authorization_context"]["planned_actions"] = [{"action": "merge", "target": "origin:codex/example->main"}]
+        expect_case("PR grant cannot authorize merge despite reversible risk label", state, 1, "PLANNED_ACTION_NOT_AUTHORIZED")
+
+        state = fresh_state()
+        merge = {"action": "merge", "target": "origin:codex/example->main"}
+        state["authorization_context"].update(granted_actions=[merge.copy()], planned_actions=[merge.copy()])
+        expect_case("known high risk action requires impact and rollback", state, 1, "HIGH_RISK_DETAILS_REQUIRED")
+
+        state = fresh_state()
+        outside = repo / "outside.txt"
+        outside.write_text("outside authorized scope\n", encoding="utf-8")
+        expect_case("natural-language authorization preserves live diff scope", state, 1, "DIFF_OUTSIDE_WRITE_SCOPE: outside.txt")
+        outside.unlink()
+
+        state = fresh_state()
+        state["authorization_context"]["source"] = "explicit-consent"
+        state["authorization_card"]["authorization_message"] = "同意按这些动作执行"
+        expect_case("natural-language consent is accepted", state, 0, "PROTOCOL_RESULT=PASS")
+        state["authorization_context"]["source"] = "shortcut"
+        expect_case("shortcut must preserve actual 1", state, 1, "AUTHORIZATION_SHORTCUT_INVALID")
+        state["authorization_card"]["authorization_message"] = "1"
+        expect_case("1 remains a shortcut", state, 0, "PROTOCOL_RESULT=PASS")
+
+        state = fresh_state()
+        state["authorization_context"]["planned_actions"] = [{"action": "commit", "target": "main"}]
+        expect_case("local completion does not authorize commit", state, 1, "PLANNED_ACTION_NOT_AUTHORIZED")
+        state = fresh_state()
+        state["authorization_context"]["granted_actions"][0]["target"] = "allowed/*"
+        expect_case("wildcard grants are not exact objects", state, 1, "ACTION_TARGET_NOT_EXACT")
+        state = fresh_state()
+        state["authorization_context"].update(granted_actions=[], planned_actions=[])
+        expect_case("unplanned historical diff still needs a grant", state, 1, "DIFF_OUTSIDE_AUTHORIZED_TARGETS")
+        state["authorization_context"]["intent"] = "discuss"
+        expect_case("discussion cannot hide real diff with empty actions", state, 1, "DISCUSSION_CANNOT_WRITE")
+        state = fresh_state()
+        state["task_assessment"]["operation_risk"] = "read-only"
+        expect_case("difficulty does not override read-only impact", state, 1, "READ_ONLY_CANNOT_WRITE")
+
+        def agent(identifier: str, role: str) -> dict:
+            return {"id": identifier, "role": role, "model": "gpt-5.6-terra" if role == "explorer" else "gpt-6-astra", "effort": "high", "permission": "workspace-write" if role in {"developer", "ui-maker"} else "read-only", "observation": "测试夹具中的请求回执，不声称真实模型已运行"}
+
+        def delegated_state() -> dict:
+            state = fresh_state()
+            state["task_assessment"]["difficulty"] = "normal"
+            state["collaboration"].update(writer="dev-1", dispatches=[agent("dev-1", "developer")])
+            return state
+
+        state = fresh_state()
+        state["task_assessment"]["difficulty"] = "normal"
+        expect_case("ordinary feature uses one executor", state, 1, "DELEGATED_WRITER_REQUIRED")
+        expect_case("one observed executor is valid", delegated_state(), 0, "PROTOCOL_RESULT=PASS")
+        state = delegated_state()
+        state["collaboration"]["dispatches"].append(agent("dev-2", "developer"))
+        expect_case("two current writers are rejected", state, 1, "SINGLE_WRITER_REQUIRED")
+        state["collaboration"].update(writer="dev-2", dispatches=[agent("dev-2", "developer")])
+        expect_case("completed writer can hand off current ownership", state, 0, "PROTOCOL_RESULT=PASS")
+        state = delegated_state()
+        state["collaboration"]["dispatches"][0]["effort"] = "xhigh"
+        expect_case("model override needs an explicit basis", state, 1, "MODEL_OVERRIDE_MUST_BE_OBJECT")
+        state["collaboration"]["dispatches"][0]["override"] = {"reason": "复杂状态提高思考强度", "authorization_card_version": "1", "authorization_evidence": "主任务核对当前授权和工具支持的 xhigh"}
+        expect_case("authorized xhigh is not blocked by defaults", state, 0, "PROTOCOL_RESULT=PASS")
+        state["collaboration"]["dispatches"][0]["override"]["authorization_card_version"] = "0"
+        expect_case("stale model override is rejected", state, 1, "MODEL_OVERRIDE_AUTHORIZATION_STALE")
+        state = delegated_state()
+        explorer = agent("explorer-1", "explorer")
+        explorer.update(model="gpt-6-astra", override={"reason": "复杂勘察", "authorization_card_version": "1", "authorization_evidence": "当前允许升级，工具能力已核对"})
+        state["collaboration"]["dispatches"].append(explorer)
+        expect_case("exploration can use a supported stronger model", state, 0, "PROTOCOL_RESULT=PASS")
+        explorer["permission"] = "workspace-write"
+        expect_case("model override cannot widen read-only role", state, 1, "DISPATCH_MODEL_OR_PERMISSION_MISMATCH")
+
+        def finished_state() -> dict:
+            state = fresh_state()
+            state["candidate"]["state"] = "可收口"
+            for name in ("target_check", "adjacent_regression", "real_environment"):
+                state["delivery_evidence"][name].update(status="passed", evidence="测试夹具中的固定检查结果")
+            return state
+
+        state = finished_state()
+        merge = {"action": "merge", "target": "origin:codex/example->main", "impact": "变更 main", "rollback": "创建反向提交"}
+        state["authorization_context"]["granted_actions"].append(merge)
+        state["authorization_context"]["planned_actions"].append(merge.copy())
+        expect_case("known high risk needs independent acceptance", state, 1, "INDEPENDENT_REVIEW_INCOMPLETE")
+        state["candidate"]["state"] = "开发中"
+        expect_case("merge cannot bypass review by claiming development stage", state, 1, "INDEPENDENT_REVIEW_INCOMPLETE")
+        state["candidate"]["state"] = "可收口"
+        state["collaboration"]["dispatches"] = [agent("review-1", "reviewer")]
+        state["collaboration"]["independent_review"] = {"status": "passed", "reviewer_id": "review-1", "evidence": "独立检查的原始证据位置（测试夹具）"}
+        expect_case("high risk with exact grant and independent review", state, 0, "PROTOCOL_RESULT=PASS")
+        state["collaboration"]["independent_review"]["reviewer_id"] = "main"
+        expect_case("writer cannot impersonate independent reviewer", state, 1, "INDEPENDENT_REVIEWER_REQUIRED")
+
+        exception = {"id": "compatibility", "reason": "短期兼容旧接口", "boundary": "仅旧接口适配层", "exit_condition": "调用方迁移完成后删除", "authorization_card_version": "1", "authorization_evidence": "用户明确同意该局部取舍", "status": "approved"}
+        state = finished_state()
+        state["quality_exceptions"] = [exception.copy()]
+        expect_case("explicit bounded quality exception permits completion", state, 0, "PROTOCOL_RESULT=PASS")
+        state["quality_exceptions"][0]["status"] = "pending"
+        expect_case("unapproved debt prevents completion", state, 1, "QUALITY_EXCEPTION_UNAPPROVED")
+        state["quality_exceptions"][0]["status"] = "approved"
+        state["delivery_evidence"]["target_check"].update(status="failed", evidence="固定检查失败")
+        expect_case("approved debt cannot waive fixed checks", state, 1, "DELIVERY_TARGET_NOT_PASSED")
+        state = finished_state()
+        finding = {"id": "unrelated", "summary": "无关格式建议", "classification": "deferred", "causal_relation": "historical-debt", "causal_evidence": "不影响固定目标", "action": "record-only", "status": "open"}
+        state["finding_records"] = [finding]
+        expect_case("unrelated findings do not restart completed work", state, 0, "PROTOCOL_RESULT=PASS")
+        finding.update(classification="scope-change", causal_relation="new-request", action="stop-for-decision")
+        state["candidate"].update(state="阻塞", closeout_state="阻塞")
+        expect_case("undecided new scope blocks planned writes", state, 1, "BLOCKED_CANDIDATE_CANNOT_EXECUTE")
+        state["authorization_context"]["planned_actions"] = []
+        expect_case("blocked record can retain existing candidate evidence", state, 0, "PROTOCOL_RESULT=PASS")
+        state = fresh_state()
+        state["scope_control"]["status"] = "draft"
+        expect_case("v5 keeps v4 scope freeze", state, 1, "SCOPE_CONTROL_STATUS_INVALID")
+
+        state = fresh_state()
+        state["delivery_evidence"].update(task_kind="feature", before_status="baseline-green", before_evidence="既有基础检查通过，新功能使用相称目标验证")
+        expect_case("new feature need not manufacture red", state, 0, "PROTOCOL_RESULT=PASS")
+        state["delivery_evidence"].update(before_status="pending", before_evidence=None)
+        expect_case("unprepared feature cannot claim ready", state, 1, "V5_FEEDBACK_EVIDENCE_REQUIRED")
+        state = fresh_state()
+        state["delivery_evidence"].update(task_kind="visual", verification_mode="new-ui", before_status="not-applicable", before_evidence="此前不存在页面")
+        expect_case("new UI has no invented historical baseline", state, 0, "PROTOCOL_RESULT=PASS")
+        state["delivery_evidence"]["verification_mode"] = "existing-ui"
+        expect_case("existing UI still requires captured baseline", state, 1, "V5_FEEDBACK_EVIDENCE_REQUIRED")
+        state["delivery_evidence"].update(before_status="captured", before_evidence="准确路由与状态截图")
+        expect_case("existing UI accepts captured evidence", state, 0, "PROTOCOL_RESULT=PASS")
+
+        def bug_state() -> dict:
+            state = fresh_state()
+            state["failure_identity"] = {"id": "original-bug", "symptom": "原始操作偶发失败", "stable_signal": "python3 reproduce.py"}
+            state["delivery_evidence"].update(task_kind="bug", verification_mode="bug-repro", feedback_signal="python3 reproduce.py", before_status="red", before_evidence="原始操作失败且根因路径已捕获")
+            return state
+
+        state = bug_state()
+        expect_case("reproducible bug retains original red", state, 0, "PROTOCOL_RESULT=PASS")
+        state["delivery_evidence"]["feedback_signal"] = "python3 easier.py"
+        expect_case("v5 cannot swap original bug signal", state, 1, "DELIVERY_BUG_SIGNAL_MISMATCH")
+        state = bug_state()
+        state["delivery_evidence"].update(verification_mode="bug-diagnosis", before_status="captured", before_evidence="原始偶发日志与追踪", feedback_scope=["allowed/initial.txt"], unverified_boundaries=["仅可诊断，尚未证实故障修复"])
+        expect_case("intermittent bug may deliver diagnostic evidence", state, 0, "PROTOCOL_RESULT=PASS")
+        state["delivery_evidence"]["unverified_boundaries"] = []
+        expect_case("diagnostic work cannot hide unverified repair", state, 1, "DIAGNOSIS_UNVERIFIED_BOUNDARY_REQUIRED")
+        state["delivery_evidence"]["unverified_boundaries"] = ["尚未修复"]
+        state["authorization_context"]["granted_actions"][0]["target"] = "allowed"
+        state["authorization_context"]["planned_actions"][0]["target"] = "allowed"
+        production = repo / "allowed/production.txt"
+        production.write_text("production behavior\n", encoding="utf-8")
+        expect_case("diagnostic mode cannot write production outside feedback", state, 1, "DIFF_OUTSIDE_FEEDBACK_SCOPE")
+        production.unlink()
+
+        state = bug_state()
+        state["diagnostic_events"] = [{"kind": kind, "evidence": "命令未经过原始故障路径，不能证伪假设", "observed_at": "2026-09-05T00:00:00Z"} for kind in ("tool", "syntax", "environment")]
+        expect_case("tool syntax environment events do not count as original failures", state, 0, "PROTOCOL_RESULT=PASS")
+        state["production_failure_count"] = 3
+        expect_case("counter cannot substitute diagnostic events for failures", state, 1, "FAILURE_COUNT_MISMATCH")
+        state = bug_state()
+        state["failure_records"] = [failure(index) for index in range(1, 4)]
+        state["production_failure_count"] = 3
+        expect_case("three original failed hypotheses still stop", state, 1, "THREE_FAILURES_REQUIRE_RECOVERY_DISPATCH")
+        state["lifecycle"] = "recovery-diagnosis"
+        state["authorization_card"].update(version="2", authorization_message="同意按新证据进行恢复诊断", authorization_basis="主任务核对独立诊断授权")
+        state["scope_control"]["authorization_card_version"] = "2"
+        state["recovery"].update(kind="diagnosis", pre_recovery_authorization={"card_version": "1", "authorization_message": "请修复原始故障", "authorization_basis": "明确请求"}, diagnosis_authorization={"card_version": "2", "authorization_message": state["authorization_card"]["authorization_message"], "authorization_basis": state["authorization_card"]["authorization_basis"]}, new_evidence="新追踪确认根因接缝", diagnosis_stage="4", previous_failure_ids=["failure-1", "failure-2", "failure-3"])
+        expect_case("natural-language v5 recovery diagnosis preserves history", state, 0, "PROTOCOL_RESULT=PASS")
+        state["recovery"]["previous_failure_ids"] = []
+        expect_case("new context cannot clear failed hypothesis history", state, 1, "RECOVERY_FAILURE_HISTORY_MISMATCH")
+        state["recovery"]["previous_failure_ids"] = ["failure-1", "failure-2", "failure-3"]
+        state["lifecycle"] = "recovery-repair"
+        state["authorization_card"].update(version="3", authorization_message="同意使用新假设修复准确原始故障", authorization_basis="独立的恢复修复授权")
+        state["scope_control"]["authorization_card_version"] = "3"
+        repair = {"action": "recovery-repair", "target": "original-bug", "impact": "修改已定位的生产行为", "rollback": "保留失败证据并撤回本次独立改动"}
+        state["authorization_context"]["granted_actions"].append(repair)
+        state["authorization_context"]["planned_actions"].append(repair.copy())
+        state["recovery"].update(kind="repair", diagnosis_stage="completed", diagnosis_conclusion="根因证据已确认", repair_stable_signal="python3 reproduce.py", repair_hypothesis="new hypothesis", repair_authorization={"card_version": "3", "authorization_message": state["authorization_card"]["authorization_message"], "authorization_basis": state["authorization_card"]["authorization_basis"]})
+        expect_case("separately authorized recovery repair accepts natural consent", state, 0, "PROTOCOL_RESULT=PASS")
+        state["recovery"]["repair_hypothesis"] = "hypothesis 2"
+        expect_case("new agent cannot reuse disproved original hypothesis", state, 1, "RECOVERY_REPAIR_HYPOTHESIS_REUSED")
+
+        if failures:
+            raise AssertionError("V5_AUTHORIZATION_SCENARIOS_FAILED\n" + "\n".join(failures))
+
+
 def main() -> int:
     check("PROTOCOL_RESULT=PASS" in verify(FIXTURES / "valid.json", "--structure-only"), "valid structure")
     check("AUTHORIZATION_CARD_FIELDS_INVALID" in verify(FIXTURES / "missing-card-field.json", "--structure-only", expected=1), "missing card field")
@@ -204,20 +448,6 @@ def main() -> int:
     protocol_document = (ROOT / "references" / "executable-protocol.md").read_text(encoding="utf-8")
     document_example = re.search(rf"{fence}json\n(.*?)\n{fence}", protocol_document, re.DOTALL)
     check(document_example is not None, "document state example")
-    check("--check-worktree" not in protocol_document, "protocol document uses removed CLI flag")
-    check("--check-worktree" not in (ROOT / "references" / "git-lifecycle.md").read_text(encoding="utf-8"), "git lifecycle uses removed CLI flag")
-    check("不得因无法读取主对话而重新裁定授权" in (ROOT / "references" / "dispatch-packet.md").read_text(encoding="utf-8"), "parent owns chat authorization")
-    for role in ("team-developer.toml", "team-explorer.toml", "team-reviewer.toml", "team-ui-maker.toml"):
-        instructions = (ROOT / "templates" / "agents" / role).read_text(encoding="utf-8")
-        check("主任务是唯一核对聊天授权事实的角色" in instructions, f"{role} delegates chat authorization")
-    protocol_v4_text = (ROOT / "references" / "executable-protocol.md").read_text(encoding="utf-8")
-    for marker in ("v4 范围冻结与发现分流", "current-blocker", "deferred", "scope-change", "delivery-evidence-passed-no-open-blocker"):
-        check(marker in protocol_v4_text, f"v4 protocol documentation includes {marker}")
-    check("deferred 和 scope-change 不能扩张当前范围" in (ROOT / "references" / "dispatch-packet.md").read_text(encoding="utf-8"), "dispatch keeps non-blocking findings out of scope")
-    check("`deferred` 只返回记录" in (ROOT / "templates" / "agents" / "team-developer.toml").read_text(encoding="utf-8"), "developer records deferred findings")
-    check("只提供发现的事实、因果证据和分类建议" in (ROOT / "templates" / "agents" / "team-explorer.toml").read_text(encoding="utf-8"), "explorer only recommends finding classification")
-    check("只报告并建议 `current-blocker`、`deferred` 或 `scope-change` 分类" in (ROOT / "templates" / "agents" / "team-reviewer.toml").read_text(encoding="utf-8"), "reviewer cannot turn findings into tasks")
-    check("`scope-change` 立即停止交回主任务" in (ROOT / "templates" / "agents" / "team-ui-maker.toml").read_text(encoding="utf-8"), "ui maker stops on scope changes")
     with tempfile.TemporaryDirectory() as directory:
         example_state = Path(directory) / "example.json"
         example_state.write_text(document_example.group(1), encoding="utf-8")
@@ -659,6 +889,33 @@ def main() -> int:
             source = Path(directory) / "source"
             runtime = Path(directory) / "dev-team"
             agents = Path(directory) / "agents"
+            shutil.copytree(ROOT, source, ignore=shutil.ignore_patterns("__pycache__", ".git"))
+            shutil.copytree(ROOT, runtime, ignore=shutil.ignore_patterns("__pycache__", ".git"))
+            shutil.copytree(ROOT / "templates/agents", agents)
+
+            def setup_result(*arguments: str) -> str:
+                return run("bash", str(source / "scripts/verify-setup.sh"), *arguments, expected=1)
+
+            template = source / "templates/agents/team-developer.toml"
+            original = template.read_text(encoding="utf-8")
+            template.write_text(original.replace('model = "gpt-6-astra"', 'model = "gpt-5.6-terra"'), encoding="utf-8")
+            check("AGENT_CONFIG_MISMATCH" in setup_result("--source-only"), "setup catches stale model default")
+            template.write_text(original, encoding="utf-8")
+            reviewer = source / "templates/agents/team-reviewer.toml"
+            original = reviewer.read_text(encoding="utf-8")
+            reviewer.write_text(original.replace('sandbox_mode = "read-only"', 'sandbox_mode = "workspace-write"'), encoding="utf-8")
+            check("AGENT_CONFIG_MISMATCH" in setup_result("--source-only"), "setup catches widened reviewer permission")
+            reviewer.write_text(original, encoding="utf-8")
+            installed = agents / "team-developer.toml"
+            installed.write_text(installed.read_text(encoding="utf-8") + "\n# stale installed instructions\n", encoding="utf-8")
+            check("AGENT_COPY_DIFFERS" in setup_result(str(agents), str(runtime)), "same model does not hide stale installed instructions")
+            skill = source / "SKILL.md"
+            skill.write_text(skill.read_text(encoding="utf-8") + "\n[missing reference](references/not-present.md)\n", encoding="utf-8")
+            check("REFERENCE_MISSING" in setup_result("--source-only"), "setup checks local reference resolution")
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "source"
+            runtime = Path(directory) / "dev-team"
+            agents = Path(directory) / "agents"
             shutil.copytree(ROOT, source, ignore=shutil.ignore_patterns("__pycache__"))
             shutil.copytree(ROOT, runtime, ignore=shutil.ignore_patterns("__pycache__"))
             shutil.copytree(ROOT / "templates" / "agents", agents)
@@ -688,6 +945,7 @@ def main() -> int:
             )
             check(result.returncode == 1, "runtime cache status")
             check("PYTHON_CACHE_PRESENT: RUNTIME" in result.stdout + result.stderr, "runtime cache")
+    v5_authorization_scenarios()
     print("PROTOCOL_SCENARIOS=PASS")
     return 0
 
