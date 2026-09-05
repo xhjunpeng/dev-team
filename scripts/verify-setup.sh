@@ -66,12 +66,15 @@ required = [
     "references/recovery.md",
     "tests/scenarios.md",
     "scripts/verify-protocol.py",
+    "scripts/verify-setup.sh",
     "tests/test_protocol.py",
     "tests/fixtures/protocol/valid.json",
     "tests/fixtures/protocol/non-main-direct-write.json",
     "tests/fixtures/protocol/mismatched-failure-count.json",
     "tests/fixtures/protocol/missing-card-field.json",
 ]
+required += [str(path.relative_to(skill_dir)) for path in sorted((skill_dir / "tests/fixtures/protocol").glob("*.json")) if str(path.relative_to(skill_dir)) not in required]
+required += [str(path.relative_to(skill_dir)) for path in sorted((skill_dir / "templates/agents").glob("*.toml"))]
 for relative in required:
     path = skill_dir / relative
     if not path.is_file():
@@ -93,395 +96,45 @@ for label, root in verification_roots:
     if cache_dirs:
         raise SystemExit(f"PYTHON_CACHE_PRESENT: {label}: {cache_dirs[0]}")
 
-protocol_text = (skill_dir / "references/executable-protocol.md").read_text(encoding="utf-8")
-for marker in (
-    "唯一机器可验证定义",
-    "delivery_evidence",
-    "production_failure_count",
-    "write_scope",
-    "--structure-only",
-    "不能证明用户的聊天回复真实对应某张卡",
-):
-    if marker not in protocol_text:
-        raise SystemExit(f"EXECUTABLE_PROTOCOL_MARKER_MISSING: {marker}")
-protocol_validator_text = (skill_dir / "scripts/verify-protocol.py").read_text(encoding="utf-8")
-if '"执行内部收口审计"' not in protocol_validator_text:
-    raise SystemExit("INTERNAL_CLOSEOUT_AUDIT_PROTOCOL_MARKER_MISSING")
-if "调用 `shoukou` 收口审计" in protocol_validator_text:
-    raise SystemExit("LEGACY_CLOSEOUT_AUDIT_PROTOCOL_MARKER_PRESENT")
-protocol_test = subprocess.run(
-    (sys.executable, str(skill_dir / "tests" / "test_protocol.py")),
-    text=True,
-    capture_output=True,
-    env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
-)
-if protocol_test.returncode != 0 or "PROTOCOL_SCENARIOS=PASS" not in protocol_test.stdout:
-    raise SystemExit(f"EXECUTABLE_PROTOCOL_TEST_FAILED: {protocol_test.stderr.strip() or protocol_test.stdout.strip()}")
-if not source_only:
-    runtime_protocol_test = subprocess.run(
-        (sys.executable, str(runtime_skill_dir / "tests" / "test_protocol.py")),
-        text=True,
-        capture_output=True,
-        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
-    )
-    if runtime_protocol_test.returncode != 0 or "PROTOCOL_SCENARIOS=PASS" not in runtime_protocol_test.stdout:
-        raise SystemExit(f"RUNTIME_PROTOCOL_TEST_FAILED: {runtime_protocol_test.stderr.strip() or runtime_protocol_test.stdout.strip()}")
-
-for marker in (
-    "name: dev-team",
-    "disable-model-invocation: true",
-    "快速、标准或严格路径",
-    "engineering-quality.md",
-    "specialist-routing.md",
-    "阶段职责",
-    "需求与计划就绪",
-    "十四项授权卡",
-    "任何派单、候选创建或项目写入前，读取 [dispatch-packet.md](references/dispatch-packet.md)",
-    "开头行必须字面为 <code>```text</code>，闭合行必须字面为 <code>```</code>",
-    "每个新业务目标、候选恢复或写入前隔离判断都读取 [git-lifecycle.md](references/git-lifecycle.md) 和 [candidate-ledger.md](references/candidate-ledger.md)",
-    "普通模式只可简化卡内动作内容，不得省略卡或父卡授权传递",
-    "executable-protocol.md",
-    "发送最终回复前",
-    "仍有子 Agent 运行时只发进度并继续等待",
-    "真实停止时必须说明原因、当前候选状态、推荐下一步和需要用户决定的事项",
-    "内部收口审计核验，并且必须逐项列入当前 `dev-team` 授权卡",
-    "收口状态（继续开发 / 建议收口 / 阻塞）、是否阻止开始新业务目标",
-):
-    if marker not in skill_text:
-        raise SystemExit(f"SKILL_MARKER_MISSING: {marker}")
-
-dispatch_text = (skill_dir / "references/dispatch-packet.md").read_text(encoding="utf-8")
-for marker in (
-    "需求与计划就绪",
-    "使用对象或对象群：",
-    "可观察的验收标准：",
-    "唯一写入者：",
-    "交回主任务/停止条件：",
-    "任务关系：同一未完成业务目标 / 新业务目标 / 归属不明",
-    "隔离判定：复用当前候选 / 主分支直接写 / 当前目录候选分支 / 独立分支与 worktree / 先收口或明确保留",
-    "当前收口状态：继续开发 / 建议收口 / 阻塞",
-    "是否阻止开始新业务目标：是 / 否",
-    "交付证据",
-    "反馈工具唯一写入范围：",
-    "相邻回归及当前结果：",
-    "真实环境检查及当前结果：",
-    "故障派单字段",
-    "写入类别：只读诊断 / 诊断工具写入 / 生产修复",
-    "恢复目标类型：否 / 诊断 / 生产修复",
-    "恢复诊断结论（生产修复才填）：",
-):
-    if marker not in dispatch_text:
-        raise SystemExit(f"DISPATCH_PACKET_MARKER_MISSING: {marker}")
-for marker in ("[specialist-routing.md](specialist-routing.md)", "[recovery.md](recovery.md)"):
-    if marker not in dispatch_text:
-        raise SystemExit(f"DISPATCH_PACKET_AUTHORITY_POINTER_MISSING: {marker}")
-for marker in ("不能以 `tdd`", "恢复字段只在失败次数达到 3"):
-    if marker in dispatch_text:
-        raise SystemExit(f"DISPATCH_PACKET_PARALLEL_RULE: {marker}")
-for marker in (
-    "十四项授权卡",
-    "执行模式：普通 / 连续执行",
-    "连续清单版本：",
-    "业务目标：",
-    "准确候选与 worktree：",
-    "执行终点：本地候选完成 / PR 可评审 / 已合并并清理 / 自定义",
-    "本次一次性授权动作：",
-    "满足条件后自动执行的动作：",
-    "自动修复与复验策略：",
-    "必须停止的情况：",
-    "明确不会执行：",
-    "进度汇报方式：只汇报 / 需要确认",
-    "授权状态：未获得 / 已获得",
-    "授权消息：",
-    "授权依据：",
-    "授权卡有且只有一种启动路径",
-    "等待用户对该卡回复精确 `1`",
-    "均不能替代该首次确认",
-    "枚举行硬门槛：执行模式行必须逐字且整行仅为“执行模式：普通”或“执行模式：连续执行”；授权状态行必须逐字且整行仅为“授权状态：未获得”或“授权状态：已获得”",
-    "不得使用“连续执行提案”“待用户确认”“模拟执行”等同义状态",
-    "父授权卡版本：",
-    "父业务目标：",
-    "父准确候选与 worktree：",
-    "父执行终点：",
-    "本阶段允许动作：",
-    "父授权状态：已获得",
-    "父授权消息：",
-    "父授权依据：最新完整十四项卡的精确1",
-    "新会话或新线程不得仅凭摘要、截图或旧卡继承授权",
-    "展示给用户的初始卡和替代卡必须置于一个 fenced `text` 代码块",
-    "普通 Markdown 标题、段落或列表形式的卡片无效",
-    "且整张卡只能有这一对围栏",
-    "授权清单 · v<连续清单版本>",
-    "[范围]、[执行]、[边界]、[授权]",
-    "五个动作/边界字段的多个事项必须另起缩进行",
-    "动作与边界字段的多个事项以缩进短项呈现，不得堆成横向长句",
-    "不得用表格、同义标题、合并项或另起十四项替代",
-    "字段值未知时明确写“待只读核对”，但标签不得省略",
-    "缺少任何原始标签或使用未允许的枚举值的卡不是完整卡，不得启动、请求或接受精确1",
-    "未授权卡的授权消息记录当前原始请求",
-    "已授权卡的授权消息和授权依据均记录最新清单的精确1",
-    "版本递增的完整替代授权卡",
-    "不能用简略动作列表、摘要或“新清单”替代",
-    "缺任一字段不得请求或接受新的精确1",
-    "主任务终点门禁",
-    "子 Agent 返回只表示本派单阶段结束，不表示主任务或业务目标完成",
-    "仍有子 Agent 运行时，只能发送进度并立即继续等待，不得发送最终回复",
-    "未达到执行终点且未命中停止条件时，主任务必须继续等待、恢复或派发下一阶段，不得发送最终回复",
-    "最终回复只允许用于“已达到执行终点”或“真实停止条件已命中”两种状态",
-    "说明原因、当前候选状态、推荐下一步和需要用户决定的事项",
-    "动作边界与终点预设",
-    "授权只覆盖当前版本的授权卡",
-    "没有列出的提交、推送、PR、合并或删除不能借连续授权执行",
-    "同一故障仍以 [recovery.md](recovery.md) 的熔断为准",
-    "“本次一次性授权动作”或“满足条件后自动执行的动作”必须逐字包含“执行内部收口审计”，缺失则卡不完整，不得启动",
-    "语义授权边界",
-    "不是冻结的文件白名单",
-    "按既有锁文件恢复本地依赖",
-    "迁移相关代码函数/文件",
-    "数据、数据库结构、部署或其他高风险迁移",
-):
-    if marker not in dispatch_text:
-        raise SystemExit(f"CONTINUOUS_EXECUTION_MARKER_MISSING: {marker}")
-for line in dispatch_text.splitlines():
-    if "必须停止" in line and "迁移" in line and "数据、数据库结构、部署或其他高风险迁移" not in line:
-        raise SystemExit(f"CONTINUOUS_EXECUTION_UNQUALIFIED_MIGRATION_STOP: {line}")
-
-discovery_text = (skill_dir / "references/project-discovery.md").read_text(encoding="utf-8")
-for marker in (
-    "连续任务前置准备",
-    "共享入口、相邻测试接缝或需要迁移的函数/文件",
-    "工作树已有锁文件",
-    "按既有锁文件恢复本地依赖不等于变更依赖或锁文件",
-    "任务关系：",
-    "隔离判定与依据：",
-    "收口状态与是否阻止新业务目标：",
-):
-    if marker not in discovery_text:
-        raise SystemExit(f"CONTINUOUS_DISCOVERY_MARKER_MISSING: {marker}")
-authorization_card_labels = (
-    "执行模式：普通 / 连续执行",
-    "连续清单版本：",
-    "业务目标：",
-    "准确候选与 worktree：",
-    "执行终点：本地候选完成 / PR 可评审 / 已合并并清理 / 自定义",
-    "本次一次性授权动作：",
-    "满足条件后自动执行的动作：",
-    "自动修复与复验策略：",
-    "必须停止的情况：",
-    "明确不会执行：",
-    "进度汇报方式：只汇报 / 需要确认",
-    "授权状态：未获得 / 已获得",
-    "授权消息：",
-    "授权依据：",
-)
-card_templates = re.findall(
-    r"```text\n(授权清单 · v<连续清单版本>.*?\n)```",
-    dispatch_text,
-    re.DOTALL,
-)
-if len(card_templates) != 1:
-    raise SystemExit("AUTHORIZATION_CARD_TEMPLATE_COUNT_INVALID")
-
-card_template_lines = card_templates[0].splitlines()
-expected_card_lines = (
-    "授权清单 · v<连续清单版本>",
-    "[范围]",
-    "执行模式：普通 / 连续执行",
-    "连续清单版本：",
-    "业务目标：",
-    "准确候选与 worktree：",
-    "[执行]",
-    "执行终点：本地候选完成 / PR 可评审 / 已合并并清理 / 自定义",
-    "本次一次性授权动作：",
-    "满足条件后自动执行的动作：",
-    "自动修复与复验策略：",
-    "[边界]",
-    "必须停止的情况：",
-    "明确不会执行：",
-    "进度汇报方式：只汇报 / 需要确认",
-    "[授权]",
-    "授权状态：未获得 / 已获得",
-    "授权消息：",
-    "授权依据：",
-)
-card_line_positions = []
-for expected_line in expected_card_lines:
-    try:
-        position = card_template_lines.index(expected_line)
-    except ValueError:
-        raise SystemExit(f"AUTHORIZATION_CARD_TEMPLATE_LINE_MISSING: {expected_line}")
-    card_line_positions.append(position)
-if card_line_positions != sorted(card_line_positions):
-    raise SystemExit("AUTHORIZATION_CARD_TEMPLATE_ORDER_INVALID")
-
-action_boundary_fields = (
-    "本次一次性授权动作：",
-    "满足条件后自动执行的动作：",
-    "自动修复与复验策略：",
-    "必须停止的情况：",
-    "明确不会执行：",
-)
-for field in action_boundary_fields:
-    field_position = card_template_lines.index(field)
-    if field_position + 1 >= len(card_template_lines) or not card_template_lines[field_position + 1].startswith("  - "):
-        raise SystemExit(f"AUTHORIZATION_CARD_INDENTED_SHORT_ITEM_MISSING: {field}")
-
-label_positions = [card_templates[0].find(label) for label in authorization_card_labels]
-if -1 in label_positions or label_positions != sorted(label_positions):
-    raise SystemExit("AUTHORIZATION_CARD_LABEL_SEQUENCE_INVALID")
-legacy_start_path = "启动" "路径"
-for marker in ("明确" "连续授权", "已有" "实施授权", "提案" "确认", "全局规则已授予当前明确范围内的" "本地实施授权", "连续清单有且只有" "两种" + legacy_start_path, "连续清单有且只有" "三种" + legacy_start_path, "替代卡按上述" "两种" + legacy_start_path + "取得授权", "替代卡按上述" "三种" + legacy_start_path + "取得授权", "简单只读、明确机械小修不强制生成清单", "普通模式不填写", "普通模式不增加", "收到用户对最新清单的精确 `1` 后，" "执行到所列终点", "上述" "十个字段", "原授权已失效、用户的新变更请求和等待" "精确1"):
-    if marker in dispatch_text:
-        raise SystemExit(f"CONTINUOUS_EXECUTION_OLD_RULE: {marker}")
-for marker in ("以dispatch有效卡为准", "收口消费既有授权", "审计前提满足时", "审计前提通过时消费既有授权"):
-    if marker in dispatch_text:
-        raise SystemExit(f"DISPATCH_SHOUKOU_DECISION_DUPLICATED: {marker}")
-
-git_lifecycle_text = (skill_dir / "references/git-lifecycle.md").read_text(encoding="utf-8")
-for marker in (
-    "任务隔离前置判断",
-    "主任务负责隔离、收口和 Git 决定",
-    "新业务目标，当前目录干净、没有运行态绑定，且用户明确允许直接在由 Git 元数据核验的主分支做局部 L1 文档改动",
-    "优先解析的 `refs/remotes/origin/HEAD`",
-    "不得由状态把当前候选自报为主分支",
-    "新业务目标，涉及代码、配置、测试、脚本、跨会话交付、PR 或需要独立提交历史",
-    "当前目录有已完成任务的未收口改动、归属不清改动或多个疑似候选",
-    "收口判断与新任务门禁",
-    "建议不授予任何 Git 动作",
-    "只要当前目录不干净，就阻止开始新业务目标",
-):
-    if marker not in git_lifecycle_text:
-        raise SystemExit(f"GIT_LIFECYCLE_ISOLATION_MARKER_MISSING: {marker}")
-
-ledger_text = (skill_dir / "references/candidate-ledger.md").read_text(encoding="utf-8")
-for marker in ("连续清单版本：", "连续执行终点：", "连续授权消息/依据：", "连续授权状态：", "旧会话摘要、截图或转述不是授权记录"):
-    if marker in ledger_text:
-        raise SystemExit(f"CANDIDATE_LEDGER_CONTINUOUS_AUTHORITY: {marker}")
-for marker in (
-    "任务关系：同一未完成业务目标 / 新业务目标 / 归属不明",
-    "隔离判定：复用当前候选 / 主分支直接写 / 当前目录候选分支 / 独立分支与 worktree / 先收口或明确保留",
-    "收口状态：继续开发 / 建议收口 / 阻塞",
-    "建议收口动作：提交并推送 / 提交、推送和 PR / 合并并清理当前候选 / 不适用",
-    "是否阻止开始新业务目标：是 / 否",
-):
-    if marker not in ledger_text:
-        raise SystemExit(f"CANDIDATE_LEDGER_ISOLATION_MARKER_MISSING: {marker}")
-
-glossary_text = (skill_dir / "references/glossary.md").read_text(encoding="utf-8")
-if "[recovery.md](recovery.md)" not in glossary_text:
-    raise SystemExit("GLOSSARY_RECOVERY_POINTER_MISSING")
-if "一个可证伪假设、一次有边界的代码改动" in glossary_text or "诊断工具写入不计生产修复尝试" in glossary_text:
-    raise SystemExit("GLOSSARY_PARALLEL_REPAIR_ATTEMPT_DEFINITION")
-
-recovery_text = (skill_dir / "references/recovery.md").read_text(encoding="utf-8")
-for marker in ("故障身份与稳定红色失败信号", "诊断工具写入与生产修复尝试", "诊断记录", "可靠复现信号：", "可证伪假设及预测：", "交回主任务的条件：", "第三次仍失败", "恢复目标", "不是重试入口"):
-    if marker not in recovery_text:
-        raise SystemExit(f"RECOVERY_MARKER_MISSING: {marker}")
-
-specialist_text = (skill_dir / "references/specialist-routing.md").read_text(encoding="utf-8")
-for marker in (
-    "每个阶段最多选择一个主要专项 Skill",
-    "$to-spec",
-    "`implement` 与开发执行员职责重复",
-    "不自动安装、启用、禁用或更新任何 Skill",
-    "故障诊断门槛",
-    "不得派发生产修复",
-    "按 `git-lifecycle.md` 执行内部收口审计；当前卡必须逐项覆盖提交、推送、PR、合并或清理，未覆盖、失效、对象不一致或事实无法核验时停止并重新出卡",
-):
-    if marker not in specialist_text:
-        raise SystemExit(f"SPECIALIST_ROUTING_MARKER_MISSING: {marker}")
-
-workflow_sources = (
-    skill_text,
-    (skill_dir / "references/routing.md").read_text(encoding="utf-8"),
-    (skill_dir / "references/project-discovery.md").read_text(encoding="utf-8"),
-    (skill_dir / "references/engineering-quality.md").read_text(encoding="utf-8"),
-    protocol_text,
-    dispatch_text,
-    git_lifecycle_text,
-    specialist_text,
-    (skill_dir / "templates/agents/team-developer.toml").read_text(encoding="utf-8"),
-)
-for marker in ("全局 AGENTS", "项目规则优先", "适用的系统、全局和项目规则始终优先", "全局和项目 Git 规则是权威来源"):
-    if any(marker in source for source in workflow_sources):
-        raise SystemExit(f"INDEPENDENT_WORKFLOW_COUPLING: {marker}")
-if "当前开发任务唯一的流程来源" not in skill_text:
-    raise SystemExit("INDEPENDENT_WORKFLOW_BOUNDARY_MISSING")
-
-scenario_text = (skill_dir / "tests/scenarios.md").read_text(encoding="utf-8")
-closeout_sources = (*workflow_sources, scenario_text)
-if any("shoukou" in source for source in closeout_sources):
-    raise SystemExit("INDEPENDENT_CLOSEOUT_EXTERNAL_SKILL_DEPENDENCY")
-if "内部收口审计" not in git_lifecycle_text:
-    raise SystemExit("INDEPENDENT_CLOSEOUT_AUDIT_MISSING")
-for marker in ("明确机械小修", "未知根因 Bug", "普通功能实现", "项目未采用 Matt 体系", "需求与计划就绪", "只读故障诊断", "测试与验收分工", "未知根因先诊断", "错误的诊断工具路由", "第三次失败后的伪装修复", "有新条件的恢复目标", "连续本地候选", "连续 PR 可评审", "连续验收回环", "未列合并", "明确条件合并与当前候选清理", "未调用 dev-team 时不介入", "有效连续收口", "未覆盖或失效的收口", "调用 dev-team 的唯一首次授权卡", "UI 无关键选择直通", "UI 关键选择停止", "所有子角色缺少父卡记录", "替代卡与跨会话恢复", "准确候选动作", "自定义字段、状态或收口动作", "UI Design Read 已确认但写入权限未获得", "共享权威入口", "锁文件依赖恢复", "代码函数/文件迁移继续", "数据、数据库结构、部署类迁移停止", "真实越界", "源码候选目录验证", "精确确认后的批次续跑", "子 Agent 批次返回但仍有剩余", "达到连续执行终点", "真实停止条件优先", "已验证主分支改动", "新目标遇到已完成脏改动", "同一未完成目标复用候选", "新代码目标的候选分支", "脏目录或并行目标隔离", "子 Agent 收口事实回报", "已调用 dev-team 但缺围栏", "子 Agent 仍运行却结束回合", "v4 范围冻结", "v4 三类发现", "deferred 可收口", "scope-change 停止且不创建任务", "因果路径扩张", "v3 收口兼容"):
-    if marker not in scenario_text:
-        raise SystemExit(f"SPECIALIST_SCENARIO_MISSING: {marker}")
-for line in scenario_text.splitlines():
-    if "预期立即停止" in line and "迁移" in line and "数据、数据库结构、部署或其他高风险迁移" not in line:
-        raise SystemExit(f"SPECIALIST_SCENARIO_UNQUALIFIED_MIGRATION_STOP: {line}")
-if "逐行呈现" in scenario_text:
-    raise SystemExit("SPECIALIST_SCENARIO_LEGACY_CARD_LAYOUT")
-for marker in (
-    "在单个 `text` 文本框中按“[范围]、[执行]、[边界]、[授权]”四段组织十四个原始标签",
-    "五个动作/边界字段的多个事项使用缩进短项",
-    "替代清单必须在单个 `text` 文本框中按四段和十四个原始标签顺序填写",
-):
-    if marker not in scenario_text:
-        raise SystemExit(f"SPECIALIST_SCENARIO_CARD_LAYOUT_MISSING: {marker}")
-
-expected = {
-    "team-explorer.toml": ("项目勘察员", "gpt-5.6-luna", "medium", "read-only"),
-    "team-developer.toml": ("开发执行员", "gpt-5.6-terra", "medium", "workspace-write"),
-    "team-ui-maker.toml": ("界面制作员", "gpt-5.6-terra", "high", "workspace-write"),
-    "team-reviewer.toml": ("独立验收员", "gpt-5.6-terra", "high", "read-only"),
+# Validate package contracts and execute behavior tests; prose is reviewed by agents.
+import runpy
+protocol = runpy.run_path(str(skill_dir / "scripts/verify-protocol.py"))
+role_files = {
+    "team-explorer.toml": ("项目勘察员", "explorer"),
+    "team-developer.toml": ("开发执行员", "developer"),
+    "team-ui-maker.toml": ("界面制作员", "ui-maker"),
+    "team-reviewer.toml": ("独立验收员", "reviewer"),
 }
-for filename, values in expected.items():
-    template = skill_dir / "templates" / "agents" / filename
-    paths = (template,) if source_only else (template, agent_dir / filename)
-    for path in paths:
+for filename, (name, role) in role_files.items():
+    template = skill_dir / "templates/agents" / filename
+    for path in ((template,) if source_only else (template, agent_dir / filename)):
         if not path.is_file():
             raise SystemExit(f"AGENT_MISSING: {path}")
         data = tomllib.loads(path.read_text(encoding="utf-8"))
-        actual = (
-            data.get("name"),
-            data.get("model"),
-            data.get("model_reasoning_effort"),
-            data.get("sandbox_mode"),
-        )
-        if actual != values:
+        actual = (data.get("model"), data.get("model_reasoning_effort"), data.get("sandbox_mode"))
+        if data.get("name") != name or actual != protocol["ROLE_MODELS"][role]:
             raise SystemExit(f"AGENT_CONFIG_MISMATCH: {path}: {actual!r}")
-        instructions = data.get("developer_instructions", "")
-        for marker in ("协作模式：已启用", "任务包版本：1", "不要创建子 Agent"):
-            if marker not in instructions:
-                raise SystemExit(f"AGENT_GATE_MISSING: {path}: {marker}")
-        for marker in ("scripts/verify-protocol.py", "references/executable-protocol.md", "状态记录不能代替真实聊天授权或实际沙箱权限"):
-            if marker not in instructions:
-                raise SystemExit(f"AGENT_EXECUTABLE_PROTOCOL_GATE_MISSING: {path}: {marker}")
-        role_markers = {
-            "team-explorer.toml": ("专项 Skill", "不安装、启用或模拟", "specialist-routing.md", "recovery.md", "完整读取 `diagnosing-bugs`", "诊断记录", "工具写入请求"),
-            "team-developer.toml": ("最小可维护实现", "技术债变化", "专项 Skill", "Matt `implement`", "自动化测试和功能自检", "交付证据", "相邻回归", "真实环境检查", "specialist-routing.md", "recovery.md", "逐项核对派单字段", "拒绝写入并交回任务协调员"),
-            "team-ui-maker.toml": ("最小可维护实现", "后置覆盖", "技术债变化", "专项 Skill", "`prototype`", "交互、响应式和浏览器自检", "交付证据", "浏览器基线", "真实浏览器流程", "specialist-routing.md", "recovery.md", "逐项核对派单字段", "拒绝并交回任务协调员", "[ui-routing.md](../../references/ui-routing.md) 定义的 Design Read 状态", "Design Read 状态不是“已确认”时", "操作权限：工作区写入", "写入授权：已获得", "Design Read 已确认仅取消二次设计确认，不替代写入授权"),
-            "team-reviewer.toml": ("功能结果", "实现质量", "新增技术债", "专项 Skill", "`code-review`", "重新运行反馈信号", "单列未验证边界", "specialist-routing.md", "recovery.md", "按其核查派单、证据、计数、候选和恢复记录"),
-        }
-        for marker in role_markers.get(filename, ()):
-            if marker not in instructions:
-                raise SystemExit(f"AGENT_QUALITY_GATE_MISSING: {path}: {marker}")
-        for marker in ("父卡授权传递", "父授权卡版本", "父业务目标", "父准确候选与 worktree", "父执行终点", "本阶段允许动作", "必须停止的情况", "父授权状态", "父授权消息", "父授权依据", "主任务是唯一核对聊天授权事实的角色", "普通模式不得省略这些字段"):
-            if marker not in instructions:
-                raise SystemExit(f"AGENT_PARENT_CARD_GATE_MISSING: {path}: {marker}")
-        for marker in ("当前改动归属", "候选/worktree 事实", "收口状态（继续开发 / 建议收口 / 阻塞）", "是否阻止开始新业务目标"):
-            if marker not in instructions:
-                raise SystemExit(f"AGENT_CLOSEOUT_REPORT_MISSING: {path}: {marker}")
-        if filename in ("team-developer.toml", "team-ui-maker.toml"):
-            for marker in ("语义授权边界", "不是冻结的", "按既有锁文件恢复本地依赖", "突破明确排除项"):
-                if marker not in instructions:
-                    raise SystemExit(f"AGENT_CONTINUOUS_SCOPE_GATE_MISSING: {path}: {marker}")
-        for marker in ("失败次数达到 3", "允许的 diagnosing-bugs 阶段：1–4", "恢复诊断结论"):
-            if marker in instructions:
-                raise SystemExit(f"AGENT_PARALLEL_FAULT_RULE: {path}: {marker}")
+        if not isinstance(data.get("developer_instructions"), str) or not data["developer_instructions"].strip():
+            raise SystemExit(f"AGENT_INSTRUCTIONS_EMPTY: {path}")
     if not source_only and not filecmp.cmp(template, agent_dir / filename, shallow=False):
         raise SystemExit(f"AGENT_COPY_DIFFERS: {filename}")
 
+# Every local Markdown pointer must resolve. No exact Chinese prose is a gate.
+for path in [skill_dir / "SKILL.md", *sorted((skill_dir / "references").glob("*.md"))]:
+    text = path.read_text(encoding="utf-8")
+    for target in re.findall(r"\[[^\]]+\]\(([^)]+)\)", text):
+        if "://" in target or target.startswith("#"):
+            continue
+        if not (path.parent / target.split("#", 1)[0]).is_file():
+            raise SystemExit(f"REFERENCE_MISSING: {path}: {target}")
+
+for label, root in verification_roots:
+    result = subprocess.run(
+        (sys.executable, str(root / "tests/test_protocol.py")),
+        text=True, capture_output=True,
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "DEV_TEAM_SKIP_RUNTIME_DRIFT": "1"},
+    )
+    if result.returncode != 0 or "PROTOCOL_SCENARIOS=PASS" not in result.stdout:
+        raise SystemExit(f"{label}_PROTOCOL_TEST_FAILED: {result.stderr.strip() or result.stdout.strip()}")
 print("VERIFY_RESULT=PASS")
 PY

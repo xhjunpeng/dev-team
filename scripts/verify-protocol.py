@@ -34,10 +34,28 @@ CHECK_STATUSES = {"pending", "passed", "failed", "not-applicable"}
 BASELINE_STATUSES = {"passed", "failed", "not-applicable", "unknown"}
 TASK_ID = re.compile(r"[a-z0-9][a-z0-9-]{2,63}\Z")
 GIT_SHA = re.compile(r"[0-9a-f]{40}\Z")
-CURRENT_PROTOCOL_VERSION = 4
-SUPPORTED_PROTOCOL_VERSIONS = {2, 3, CURRENT_PROTOCOL_VERSION}
-DELIVERY_EVIDENCE_PROTOCOL_VERSIONS = {3, CURRENT_PROTOCOL_VERSION}
+CURRENT_PROTOCOL_VERSION = 5
+SUPPORTED_PROTOCOL_VERSIONS = {2, 3, 4, 5}
+DELIVERY_EVIDENCE_PROTOCOL_VERSIONS = {3, 4, 5}
+FROZEN_SCOPE_PROTOCOL_VERSIONS = {4, 5}
 IGNORED_UNTRACKED_POLICY = "excluded"
+ROLE_MODELS = {
+    "developer": ("gpt-6-astra", "high", "workspace-write"),
+    "ui-maker": ("gpt-6-astra", "high", "workspace-write"),
+    "reviewer": ("gpt-6-astra", "high", "read-only"),
+    "explorer": ("gpt-5.6-terra", "high", "read-only"),
+}
+READ_ACTIONS = {"read", "verify"}
+HIGH_RISK_ACTIONS = {
+    "merge", "branch-delete", "worktree-delete", "force-push", "deploy",
+    "data-migration", "schema-migration", "production-write", "payment",
+    "secret-change", "security-change", "recovery-repair",
+}
+REVIEW_BEFORE_EXECUTION = HIGH_RISK_ACTIONS - {"security-change", "recovery-repair"}
+ACTION_KINDS = READ_ACTIONS | HIGH_RISK_ACTIONS | {
+    "workspace-write", "branch-create", "worktree-create", "commit", "push",
+    "pr-create", "pr-update", "sync-branch", "recovery-diagnosis",
+}
 
 
 def fail(message: str) -> None:
@@ -62,7 +80,7 @@ def require_list(value: object, label: str, allow_empty: bool = False) -> list:
     return value
 
 
-def validate_card(card: dict) -> None:
+def validate_card(card: dict, protocol_version: int = 4) -> None:
     if set(card) != set(CARD_FIELDS):
         fail("AUTHORIZATION_CARD_FIELDS_INVALID")
     list_fields = {"one_time_actions", "automatic_actions", "repair_and_reverify", "stop_conditions", "will_not_do"}
@@ -84,11 +102,189 @@ def validate_card(card: dict) -> None:
             fail("CARD_EXECUTION_ENDPOINT_INVALID")
     if card["authorization_status"] != "已获得":
         fail("AUTHORIZATION_REQUIRED")
-    if card["authorization_message"] != "1" or card["authorization_basis"] != "最新完整十四项卡的精确1":
+    if protocol_version < 5 and (card["authorization_message"] != "1" or card["authorization_basis"] != "最新完整十四项卡的精确1"):
         fail("AUTHORIZATION_EVIDENCE_INVALID")
-    if card["execution_endpoint"] == "已合并并清理":
+    if protocol_version < 5 and card["execution_endpoint"] == "已合并并清理":
         if "执行内部收口审计" not in card["one_time_actions"] + card["automatic_actions"]:
             fail("CLOSEOUT_AUDIT_ACTION_MISSING")
+
+
+def validate_v5_governance(state: dict) -> None:
+    """Check recorded decisions, never infer consent or model identity from prose."""
+    assessment = require_object(state["task_assessment"], "TASK_ASSESSMENT")
+    if set(assessment) != {"difficulty", "operation_risk"}:
+        fail("TASK_ASSESSMENT_FIELDS_INVALID")
+    if require_string(assessment["difficulty"], "TASK_DIFFICULTY") not in {"small", "normal", "complex"}:
+        fail("TASK_DIFFICULTY_INVALID")
+    risk = require_string(assessment["operation_risk"], "OPERATION_RISK")
+    if risk not in {"read-only", "reversible", "high-risk"}:
+        fail("OPERATION_RISK_INVALID")
+    authorization = require_object(state["authorization_context"], "AUTHORIZATION_CONTEXT")
+    if set(authorization) != {"source", "intent", "granted_actions", "planned_actions"}:
+        fail("AUTHORIZATION_CONTEXT_FIELDS_INVALID")
+    if require_string(authorization["source"], "AUTHORIZATION_SOURCE") not in {"explicit-request", "explicit-consent", "shortcut"}:
+        fail("AUTHORIZATION_SOURCE_INVALID")
+    if authorization["source"] == "shortcut" and state["authorization_card"]["authorization_message"] != "1":
+        fail("AUTHORIZATION_SHORTCUT_INVALID")
+    if require_string(authorization["intent"], "AUTHORIZATION_INTENT") not in {"execute", "discuss"}:
+        fail("AUTHORIZATION_INTENT_INVALID")
+    grants = require_list(authorization["granted_actions"], "GRANTED_ACTIONS", allow_empty=True)
+    planned = require_list(authorization["planned_actions"], "PLANNED_ACTIONS", allow_empty=True)
+    grant_keys = set()
+    for records, label in ((grants, "GRANTED"), (planned, "PLANNED")):
+        seen = set()
+        for record in records:
+            record = require_object(record, label + "_ACTION")
+            if not {"action", "target"} <= set(record) or set(record) - {"action", "target", "impact", "rollback"}:
+                fail(label + "_ACTION_FIELDS_INVALID")
+            if require_string(record["action"], "ACTION") not in ACTION_KINDS:
+                fail("ACTION_KIND_INVALID")
+            target = require_string(record["target"], "ACTION_TARGET")
+            if any(char in target for char in ("*", "?", "\n", "\r")):
+                fail("ACTION_TARGET_NOT_EXACT")
+            if record["action"] == "workspace-write":
+                validate_relative_path(target)
+                if target == "." or Path(target).as_posix() != target:
+                    fail("ACTION_TARGET_NOT_EXACT")
+            key = (record["action"], target)
+            if key in seen:
+                fail(label + "_ACTION_DUPLICATE")
+            seen.add(key)
+            if label == "GRANTED":
+                grant_keys.add(key)
+            elif key not in grant_keys:
+                fail("PLANNED_ACTION_NOT_AUTHORIZED")
+    mutating = [record for record in planned if record["action"] not in READ_ACTIONS]
+    if authorization["intent"] == "discuss" and mutating:
+        fail("DISCUSSION_CANNOT_WRITE")
+    if risk == "read-only" and mutating:
+        fail("READ_ONLY_CANNOT_WRITE")
+    if state["candidate"]["state"] == "阻塞" and mutating:
+        fail("BLOCKED_CANDIDATE_CANNOT_EXECUTE")
+    high_risk = risk == "high-risk" or any(record["action"] in HIGH_RISK_ACTIONS for record in grants + planned)
+    for grant in grants:
+        if grant["action"] in HIGH_RISK_ACTIONS or (risk == "high-risk" and grant["action"] not in READ_ACTIONS):
+            if not all(isinstance(grant.get(field), str) and grant[field].strip() for field in ("impact", "rollback")):
+                fail("HIGH_RISK_DETAILS_REQUIRED")
+    identity = state["failure_identity"]
+    if state["lifecycle"] == "recovery-repair" and (not isinstance(identity, dict) or not any(record["action"] == "recovery-repair" and record["target"] == identity.get("id") for record in planned)):
+        fail("RECOVERY_REPAIR_ACTION_REQUIRED")
+    validate_collaboration(state, high_risk)
+    exceptions = require_list(state["quality_exceptions"], "QUALITY_EXCEPTIONS", allow_empty=True)
+    ids = set()
+    for exception in exceptions:
+        exception = require_object(exception, "QUALITY_EXCEPTION")
+        if set(exception) != {"id", "reason", "boundary", "exit_condition", "authorization_card_version", "authorization_evidence", "status"}:
+            fail("QUALITY_EXCEPTION_FIELDS_INVALID")
+        for field in ("id", "reason", "boundary", "exit_condition"):
+            require_string(exception[field], "QUALITY_EXCEPTION_" + field.upper())
+        if exception["id"] in ids:
+            fail("QUALITY_EXCEPTION_ID_DUPLICATE")
+        ids.add(exception["id"])
+        if require_string(exception["status"], "QUALITY_EXCEPTION_STATUS") not in {"pending", "approved"}:
+            fail("QUALITY_EXCEPTION_STATUS_INVALID")
+        if exception["status"] == "approved":
+            if exception["authorization_card_version"] != state["authorization_card"]["version"]:
+                fail("QUALITY_EXCEPTION_AUTHORIZATION_STALE")
+            require_string(exception["authorization_evidence"], "QUALITY_EXCEPTION_AUTHORIZATION_EVIDENCE")
+        elif state["candidate"]["state"] in {"可收口", "已收口"}:
+            fail("QUALITY_EXCEPTION_UNAPPROVED")
+    events = require_list(state["diagnostic_events"], "DIAGNOSTIC_EVENTS", allow_empty=True)
+    for event in events:
+        event = require_object(event, "DIAGNOSTIC_EVENT")
+        if set(event) != {"kind", "evidence", "observed_at"} or require_string(event["kind"], "DIAGNOSTIC_EVENT_KIND") not in {"environment", "tool", "syntax"}:
+            fail("DIAGNOSTIC_EVENT_FIELDS_INVALID")
+        require_string(event["evidence"], "DIAGNOSTIC_EVENT_EVIDENCE")
+        validate_timestamp(event["observed_at"], "DIAGNOSTIC_EVENT_TIME")
+
+
+def validate_collaboration(state: dict, high_risk: bool) -> None:
+    collaboration = require_object(state["collaboration"], "COLLABORATION")
+    if set(collaboration) != {"writer", "dispatches", "independent_review"}:
+        fail("COLLABORATION_FIELDS_INVALID")
+    writer = collaboration["writer"]
+    if writer is not None:
+        require_string(writer, "WRITER")
+    dispatches = require_list(collaboration["dispatches"], "DISPATCHES", allow_empty=True)
+    agents = {}
+    for dispatch in dispatches:
+        dispatch = require_object(dispatch, "DISPATCH")
+        required = {"id", "role", "model", "effort", "permission", "observation"}
+        if not required <= set(dispatch) or set(dispatch) - required - {"override"}:
+            fail("DISPATCH_FIELDS_INVALID")
+        identifier = require_string(dispatch["id"], "DISPATCH_ID")
+        if identifier in agents or identifier == "main":
+            fail("DISPATCH_ID_DUPLICATE")
+        role = require_string(dispatch["role"], "DISPATCH_ROLE")
+        if role not in ROLE_MODELS or dispatch["permission"] != ROLE_MODELS[role][2]:
+            fail("DISPATCH_MODEL_OR_PERMISSION_MISMATCH")
+        if (dispatch["model"], dispatch["effort"]) != ROLE_MODELS[role][:2]:
+            override = require_object(dispatch.get("override"), "MODEL_OVERRIDE")
+            if set(override) != {"reason", "authorization_card_version", "authorization_evidence"}:
+                fail("MODEL_OVERRIDE_FIELDS_INVALID")
+            for field in ("reason", "authorization_evidence"):
+                require_string(override[field], "MODEL_OVERRIDE_" + field.upper())
+            if override["authorization_card_version"] != state["authorization_card"]["version"]:
+                fail("MODEL_OVERRIDE_AUTHORIZATION_STALE")
+            require_string(dispatch["model"], "DISPATCH_MODEL")
+            if require_string(dispatch["effort"], "DISPATCH_EFFORT") not in {"low", "medium", "high", "xhigh", "max", "ultra"}:
+                fail("DISPATCH_EFFORT_INVALID")
+        require_string(dispatch["observation"], "DISPATCH_OBSERVATION")
+        agents[identifier] = dispatch
+    writable = [key for key, agent in agents.items() if agent["permission"] == "workspace-write"]
+    if len(writable) > 1 or (writer in {None, "main"} and writable) or (writer not in {None, "main"} and writable != [writer]):
+        fail("SINGLE_WRITER_REQUIRED")
+    writes = any(record["action"] == "workspace-write" for record in state["authorization_context"]["planned_actions"])
+    if writes and writer is None:
+        fail("WRITER_REQUIRED")
+    if writes and state["task_assessment"]["difficulty"] != "small" and writer == "main":
+        fail("DELEGATED_WRITER_REQUIRED")
+    review = require_object(collaboration["independent_review"], "INDEPENDENT_REVIEW")
+    if set(review) != {"status", "reviewer_id", "evidence"} or require_string(review["status"], "INDEPENDENT_REVIEW_STATUS") not in {"pending", "passed", "failed", "not-applicable"}:
+        fail("INDEPENDENT_REVIEW_FIELDS_INVALID")
+    if review["status"] == "passed":
+        reviewer = agents.get(require_string(review["reviewer_id"], "INDEPENDENT_REVIEWER_ID"))
+        if reviewer is None or reviewer["role"] != "reviewer" or review["reviewer_id"] == writer:
+            fail("INDEPENDENT_REVIEWER_REQUIRED")
+        require_string(review["evidence"], "INDEPENDENT_REVIEW_EVIDENCE")
+    elif review["status"] in {"failed", "not-applicable"}:
+        require_string(review["evidence"], "INDEPENDENT_REVIEW_EVIDENCE")
+    if any(action["action"] in REVIEW_BEFORE_EXECUTION for action in state["authorization_context"]["planned_actions"]) and review["status"] != "passed":
+        fail("INDEPENDENT_REVIEW_INCOMPLETE")
+    if state["candidate"]["state"] in {"可收口", "已收口"}:
+        if (high_risk and review["status"] != "passed") or review["status"] in {"pending", "failed"}:
+            fail("INDEPENDENT_REVIEW_INCOMPLETE")
+
+
+def validate_v5_diff(state: dict, repo: Path, state_path: Path, baseline: str) -> None:
+    changes = current_changes(repo, state_path, baseline)
+    authorization = state["authorization_context"]
+    if changes and authorization["intent"] == "discuss":
+        fail("DISCUSSION_CANNOT_WRITE")
+    if changes and state["task_assessment"]["operation_risk"] == "read-only":
+        fail("READ_ONLY_CANNOT_WRITE")
+    targets = [grant["target"] for grant in authorization["granted_actions"] if grant["action"] == "workspace-write"]
+    outside = sorted(path for path in changes if not any(path == target or path.startswith(target + "/") for target in targets))
+    if outside:
+        fail("DIFF_OUTSIDE_AUTHORIZED_TARGETS: " + ", ".join(outside))
+
+
+def validate_v5_feedback(evidence: dict, ready: bool) -> None:
+    kind, mode, before = evidence["task_kind"], require_string(evidence["verification_mode"], "VERIFICATION_MODE"), evidence["before_status"]
+    modes = {"bug": {"bug-repro", "bug-diagnosis"}, "visual": {"existing-ui", "new-ui"}}
+    if mode not in modes.get(kind, {"standard"}):
+        fail("VERIFICATION_MODE_INVALID")
+    allowed = {"pending", "red", "captured", "baseline-green", "not-applicable"}
+    if mode == "bug-repro":
+        allowed = {"pending", "red"}
+    elif mode in {"bug-diagnosis", "existing-ui"}:
+        allowed = {"pending", "captured"}
+    elif mode == "new-ui":
+        allowed = {"pending", "not-applicable"}
+    if before not in allowed or (ready and before == "pending"):
+        fail("V5_FEEDBACK_EVIDENCE_REQUIRED")
+    if mode == "bug-diagnosis" and not evidence["unverified_boundaries"]:
+        fail("DIAGNOSIS_UNVERIFIED_BOUNDARY_REQUIRED")
 
 
 def resolve_primary_branch(repo: Path) -> str | None:
@@ -185,7 +381,7 @@ def card_version(value: object, label: str) -> int:
     return int(text)
 
 
-def validate_failures(identity: object, failures: list, failure_count: object, recovery: dict, lifecycle: str, card: dict) -> None:
+def validate_failures(identity: object, failures: list, failure_count: object, recovery: dict, lifecycle: str, card: dict, protocol_version: int = 4) -> None:
     if not isinstance(failure_count, int) or failure_count < 0:
         fail("FAILURE_COUNT_INVALID")
     require_list(failures, "FAILURE_RECORDS", allow_empty=True)
@@ -238,16 +434,24 @@ def validate_failures(identity: object, failures: list, failure_count: object, r
     pre_authorization = require_object(recovery["pre_recovery_authorization"], "PRE_RECOVERY_AUTHORIZATION")
     if set(pre_authorization) != {"card_version", "authorization_message", "authorization_basis"}:
         fail("PRE_RECOVERY_AUTHORIZATION_FIELDS_INVALID")
+    if protocol_version == 5:
+        for field in ("authorization_message", "authorization_basis"):
+            require_string(pre_authorization[field], "PRE_RECOVERY_" + field.upper())
     pre_version = card_version(pre_authorization["card_version"], "PRE_RECOVERY_CARD_VERSION")
-    if pre_authorization["authorization_message"] != "1" or pre_authorization["authorization_basis"] != "最新完整十四项卡的精确1":
+    if protocol_version < 5 and (pre_authorization["authorization_message"] != "1" or pre_authorization["authorization_basis"] != "最新完整十四项卡的精确1"):
         fail("PRE_RECOVERY_AUTHORIZATION_INVALID")
     diagnosis_authorization = require_object(recovery["diagnosis_authorization"], "DIAGNOSIS_AUTHORIZATION")
     if set(diagnosis_authorization) != {"card_version", "authorization_message", "authorization_basis"}:
         fail("DIAGNOSIS_AUTHORIZATION_FIELDS_INVALID")
+    if protocol_version == 5:
+        for field in ("authorization_message", "authorization_basis"):
+            require_string(diagnosis_authorization[field], "DIAGNOSIS_" + field.upper())
     diagnosis_version = card_version(diagnosis_authorization["card_version"], "DIAGNOSIS_CARD_VERSION")
-    if diagnosis_authorization["authorization_message"] != "1" or diagnosis_authorization["authorization_basis"] != "最新完整十四项卡的精确1" or diagnosis_version <= pre_version:
+    if (protocol_version < 5 and (diagnosis_authorization["authorization_message"] != "1" or diagnosis_authorization["authorization_basis"] != "最新完整十四项卡的精确1")) or diagnosis_version <= pre_version:
         fail("DIAGNOSIS_AUTHORIZATION_INVALID")
     if lifecycle == "recovery-diagnosis" and recovery["kind"] == "diagnosis":
+        if protocol_version == 5 and any(diagnosis_authorization[field] != card[card_field] for field, card_field in (("card_version", "version"), ("authorization_message", "authorization_message"), ("authorization_basis", "authorization_basis"))):
+            fail("DIAGNOSIS_AUTHORIZATION_STALE")
         require_string(recovery["new_evidence"], "RECOVERY_NEW_EVIDENCE")
         if recovery["diagnosis_stage"] not in {"1", "2", "3", "4"}:
             fail("RECOVERY_DIAGNOSIS_STAGE_INVALID")
@@ -313,7 +517,7 @@ def validate_scope(scope: dict, business_goal: str, repo: Path, state_path: Path
     for record in discovered:
         record = require_object(record, "DISCOVERED_PATH")
         required = {"path", "reason", "business_goal", "discovered_at"}
-        if protocol_version == CURRENT_PROTOCOL_VERSION:
+        if protocol_version in FROZEN_SCOPE_PROTOCOL_VERSIONS:
             required |= {"authorization_card_version", "source_kind", "source_id", "causal_evidence"}
         if set(record) != required:
             fail("DISCOVERED_PATH_FIELDS_INVALID")
@@ -323,7 +527,7 @@ def validate_scope(scope: dict, business_goal: str, repo: Path, state_path: Path
         if require_string(record["business_goal"], "DISCOVERED_PATH_BUSINESS_GOAL") != business_goal:
             fail("DISCOVERED_PATH_BUSINESS_GOAL_MISMATCH")
         validate_timestamp(record["discovered_at"], "DISCOVERED_PATH_TIME")
-        if protocol_version == CURRENT_PROTOCOL_VERSION:
+        if protocol_version in FROZEN_SCOPE_PROTOCOL_VERSIONS:
             if require_string(record["authorization_card_version"], "DISCOVERED_PATH_CARD_VERSION") != card_version:
                 fail("DISCOVERED_PATH_CARD_VERSION_MISMATCH")
             source_kind = require_string(record["source_kind"], "DISCOVERED_PATH_SOURCE_KIND")
@@ -475,6 +679,8 @@ def validate_delivery_evidence(
         "before_status", "before_evidence", "feedback_scope", "target_check", "adjacent_regression",
         "real_environment", "unverified_boundaries",
     }
+    if protocol_version == 5:
+        required.add("verification_mode")
     if set(evidence) != required:
         fail("DELIVERY_EVIDENCE_FIELDS_INVALID")
     task_kind = evidence["task_kind"]
@@ -493,10 +699,12 @@ def validate_delivery_evidence(
     else:
         require_string(before_evidence, "DELIVERY_BEFORE_EVIDENCE")
     feedback_ready = candidate["state"] != "待判断"
-    if task_kind in {"feature", "bug"}:
+    if protocol_version == 5:
+        validate_v5_feedback(evidence, feedback_ready)
+    elif task_kind in {"feature", "bug"}:
         if before_status not in {"pending", "red"} or (feedback_ready and before_status != "red"):
             fail("DELIVERY_RED_REQUIRED")
-    if task_kind == "visual":
+    if protocol_version < 5 and task_kind == "visual":
         if before_status not in {"pending", "captured"} or (feedback_ready and before_status != "captured"):
             fail("DELIVERY_VISUAL_CAPTURE_REQUIRED")
     if task_kind == "bug":
@@ -509,7 +717,7 @@ def validate_delivery_evidence(
             fail("DELIVERY_FEEDBACK_SCOPE_OUTSIDE_WRITE_SCOPE")
     if len(feedback_scope) != len(set(feedback_scope)):
         fail("DELIVERY_FEEDBACK_SCOPE_DUPLICATE")
-    require_baseline = protocol_version == CURRENT_PROTOCOL_VERSION
+    require_baseline = protocol_version in FROZEN_SCOPE_PROTOCOL_VERSIONS
     target_status = validate_check(evidence["target_check"], "DELIVERY_TARGET_CHECK", target=True, require_baseline=require_baseline)
     regression_status = validate_check(evidence["adjacent_regression"], "DELIVERY_ADJACENT_REGRESSION", require_baseline=require_baseline)
     environment_status = validate_check(evidence["real_environment"], "DELIVERY_REAL_ENVIRONMENT", require_baseline=require_baseline)
@@ -518,14 +726,14 @@ def validate_delivery_evidence(
         require_string(boundary, "DELIVERY_UNVERIFIED_BOUNDARY")
     if before_status == "pending" and any(status != "pending" for status in (target_status, regression_status, environment_status)):
         fail("DELIVERY_CHECKS_BEFORE_FEEDBACK")
-    if candidate["state"] == "待判断" and check_diff:
+    if (candidate["state"] == "待判断" or evidence.get("verification_mode") == "bug-diagnosis") and check_diff:
         outside_feedback = sorted(
             path for path in current_changes(repo, state_path, baseline)
             if not any(path == allowed or path.startswith(f"{allowed}/") for allowed in feedback_scope)
         )
         if outside_feedback:
             fail(f"DIFF_OUTSIDE_FEEDBACK_SCOPE: {', '.join(outside_feedback)}")
-    if candidate["state"] == "已收口" or (protocol_version == CURRENT_PROTOCOL_VERSION and candidate["state"] == "可收口"):
+    if candidate["state"] == "已收口" or (protocol_version in FROZEN_SCOPE_PROTOCOL_VERSIONS and candidate["state"] == "可收口"):
         if target_status != "passed":
             fail("DELIVERY_TARGET_NOT_PASSED")
         if regression_status not in {"passed", "not-applicable"}:
@@ -589,7 +797,8 @@ def validate(state: dict, repo: Path, state_path: Path, state_dir: Path, check_d
     required_fields_by_version = {
         2: base_required,
         3: base_required | {"delivery_evidence"},
-        CURRENT_PROTOCOL_VERSION: base_required | {"delivery_evidence", "scope_control", "finding_records"},
+        4: base_required | {"delivery_evidence", "scope_control", "finding_records"},
+        5: base_required | {"delivery_evidence", "scope_control", "finding_records", "task_assessment", "authorization_context", "collaboration", "quality_exceptions", "diagnostic_events"},
     }
     required = required_fields_by_version[protocol_version]
     if set(state) != required:
@@ -603,15 +812,17 @@ def validate(state: dict, repo: Path, state_path: Path, state_dir: Path, check_d
     primary = require_string(state["primary_branch"], "PRIMARY_BRANCH")
     card = require_object(state["authorization_card"], "AUTHORIZATION_CARD")
     candidate = require_object(state["candidate"], "CANDIDATE")
-    validate_card(card)
+    validate_card(card, protocol_version)
     baseline = validate_baseline(state, repo, check_worktree)
     current_branch, resolved_primary = validate_runtime(candidate, repo, check_worktree)
     validate_candidate(candidate, card, primary, current_branch, resolved_primary)
-    validate_failures(state["failure_identity"], state["failure_records"], state["production_failure_count"], require_object(state["recovery"], "RECOVERY"), state["lifecycle"], card)
+    if protocol_version == 5:
+        validate_v5_governance(state)
+    validate_failures(state["failure_identity"], state["failure_records"], state["production_failure_count"], require_object(state["recovery"], "RECOVERY"), state["lifecycle"], card, protocol_version)
     validate_location(state, state_path, state_dir, check_location)
     validate_closeout(candidate)
     findings: list[dict] | None = None
-    if protocol_version == CURRENT_PROTOCOL_VERSION:
+    if protocol_version in FROZEN_SCOPE_PROTOCOL_VERSIONS:
         validate_scope_control(state["scope_control"], card)
         findings = validate_findings(state["finding_records"], candidate)
     allowed_paths = validate_scope(
@@ -625,12 +836,14 @@ def validate(state: dict, repo: Path, state_path: Path, state_dir: Path, check_d
         card_version=card["version"],
         findings=findings,
     )
+    if protocol_version == 5 and check_diff:
+        validate_v5_diff(state, repo, state_path, baseline)
     if protocol_version in DELIVERY_EVIDENCE_PROTOCOL_VERSIONS:
         validate_delivery_evidence(
             state["delivery_evidence"], state["failure_identity"], candidate, repo, state_path, baseline,
             allowed_paths, check_diff, protocol_version=protocol_version,
         )
-    if protocol_version == CURRENT_PROTOCOL_VERSION and candidate["state"] in {"可收口", "已收口"}:
+    if protocol_version in FROZEN_SCOPE_PROTOCOL_VERSIONS and candidate["state"] in {"可收口", "已收口"}:
         if any(finding["status"] == "open" and finding["classification"] in {"current-blocker", "scope-change"} for finding in findings or []):
             fail("OPEN_BLOCKER_PREVENTS_CLOSEOUT")
 
