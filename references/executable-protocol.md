@@ -4,152 +4,9 @@
 
 ## 一份记录
 
-每任务固定 `task_id` 与绝对用户级状态路径，由主任务维护。派单、写入和跨上下文恢复读取同一文件，带准确权威 Skill 根；记录必要非敏感授权摘要/消息位置和证据，不复制无关聊天或秘密。已有字段的严格结构由脚本解析；本例展示 v5 小修记录（路径与证据须替换为真实事实）：
+每任务固定 `task_id` 与绝对用户级状态路径，由主任务维护。派单、写入和跨上下文恢复读取同一文件，带准确权威 Skill 根；记录必要非敏感授权摘要/消息位置和证据，不复制无关聊天或秘密。已有字段的严格结构由脚本解析；新建记录需要字段示例时再读取下列链接。
 
-```json
-{
-  "protocol_version": 5,
-  "migration": null,
-  "task_id": "protocol-test",
-  "lifecycle": "active",
-  "skill_root": "/tmp/dev-team",
-  "git_baseline": "1111111111111111111111111111111111111111",
-  "ignored_untracked_policy": "excluded",
-  "primary_branch": "main",
-  "authorization_card": {
-    "execution_mode": "普通",
-    "version": "1",
-    "business_goal": "修正文档错字",
-    "candidate_and_worktree": "codex/example；/tmp/example",
-    "execution_endpoint": "本地候选完成",
-    "one_time_actions": [
-      "修改 allowed/initial.txt 中的错字"
-    ],
-    "automatic_actions": [
-      "复验"
-    ],
-    "repair_and_reverify": [
-      "修复范围内问题"
-    ],
-    "stop_conditions": [
-      "范围变化"
-    ],
-    "will_not_do": [
-      "提交"
-    ],
-    "progress_mode": "只汇报",
-    "authorization_status": "已获得",
-    "authorization_message": "请修正 allowed/initial.txt 中的错字并验证",
-    "authorization_basis": "主任务核对当前明确执行请求，范围仅为该文件"
-  },
-  "candidate": {
-    "branch": "codex/example",
-    "worktree": "/tmp/example",
-    "isolation": "当前目录候选分支",
-    "state": "开发中",
-    "closeout_state": "继续开发",
-    "blocks_new_business_goal": true
-  },
-  "delivery_evidence": {
-    "task_kind": "documentation",
-    "user_visible_outcome": "修正文档错字",
-    "target_entrypoint": "allowed/initial.txt",
-    "feedback_signal": "检查文档差异",
-    "before_status": "captured",
-    "before_evidence": "已读取原始文本 initial",
-    "feedback_scope": [
-      "allowed"
-    ],
-    "target_check": {
-      "status": "pending",
-      "evidence": null,
-      "signal": "检查 allowed/initial.txt 的实际内容与差异",
-      "baseline_status": "unknown",
-      "baseline_evidence": null
-    },
-    "adjacent_regression": {
-      "status": "pending",
-      "evidence": null,
-      "signal": "检查关联文档引用",
-      "baseline_status": "unknown",
-      "baseline_evidence": null
-    },
-    "real_environment": {
-      "status": "not-applicable",
-      "evidence": "局部文档修改没有外部运行环境",
-      "signal": "核对该任务是否有外部运行环境",
-      "baseline_status": "unknown",
-      "baseline_evidence": null
-    },
-    "unverified_boundaries": [],
-    "verification_mode": "standard"
-  },
-  "scope_control": {
-    "authorization_card_version": "1",
-    "status": "frozen",
-    "in_scope": [
-      "修正文档错字"
-    ],
-    "out_of_scope": [
-      "不处理其他协议规则"
-    ],
-    "completion_policy": "delivery-evidence-passed-no-open-blocker"
-  },
-  "finding_records": [],
-  "failure_identity": null,
-  "production_failure_count": 0,
-  "failure_records": [],
-  "recovery": {
-    "kind": "none",
-    "pre_recovery_authorization": null,
-    "diagnosis_authorization": null,
-    "new_evidence": null,
-    "diagnosis_stage": null,
-    "diagnosis_conclusion": null,
-    "repair_stable_signal": null,
-    "repair_hypothesis": null,
-    "repair_authorization": null,
-    "previous_failure_ids": []
-  },
-  "write_scope": {
-    "initial_allowed_paths": [
-      "allowed"
-    ],
-    "discovered_paths": []
-  },
-  "task_assessment": {
-    "difficulty": "small",
-    "operation_risk": "reversible"
-  },
-  "authorization_context": {
-    "source": "explicit-request",
-    "intent": "execute",
-    "granted_actions": [
-      {
-        "action": "workspace-write",
-        "target": "allowed/initial.txt"
-      }
-    ],
-    "planned_actions": [
-      {
-        "action": "workspace-write",
-        "target": "allowed/initial.txt"
-      }
-    ]
-  },
-  "collaboration": {
-    "writer": "main",
-    "dispatches": [],
-    "independent_review": {
-      "status": "not-applicable",
-      "reviewer_id": null,
-      "evidence": "局部可逆文档小修，由主任务复核"
-    }
-  },
-  "quality_exceptions": [],
-  "diagnostic_events": []
-}
-```
+完整字段见 [v5 记录示例](v5-state-example.md)；已有记录直接复用，不重复加载示例。
 
 `authorization_card` 保留既有 14 个内部字段，v5 不要求用户逐字填写或固定展示格式。授权版本与 `scope_control.authorization_card_version` 相等；候选分支和绝对 worktree 与 card 完全匹配。终点可以是本地候选完成、PR 可评审、已合并并清理，或 `自定义：` 加准确条件，终点本身不授权动作。
 
@@ -168,7 +25,7 @@
 
 ## 协作与例外
 
-`collaboration.writer` 为 main、当前执行员 ID 或 null；`dispatches` 仅记录当前有效派发，包含 id、role、model、effort、permission 与工具请求/回执摘要 observation。role 为 developer/ui-maker/reviewer/explorer，默认模型与权限见 ROLE_MODELS。只读角色不能改为可写，普通功能不能由 main 写，不能同时存在多个写入者。结束旧执行员后才更新当前派发；历史回执留在交接证据中，不新建一套任务状态。
+`collaboration.writer` 为 main、当前执行员 ID 或 null；`dispatches` 仅记录当前有效派发，包含 id、role、model、effort、permission 与工具请求/回执摘要 observation。role 为 developer/ui-maker/reviewer/explorer，默认模型与权限见 ROLE_MODELS。只读角色不能改为可写；普通功能允许 main 或一个执行员写入，不能同时存在多个写入者。结束旧执行员后才更新当前派发；历史回执留在交接证据中，不新建一套任务状态。
 
 模型/档位覆盖时增加 override，包含 reason、authorization_card_version、authorization_evidence；必须符合当前授权并经工具能力核验，不能用自报模型名证明真实运行。模型策略详见 [model-policy.md](model-policy.md)。
 

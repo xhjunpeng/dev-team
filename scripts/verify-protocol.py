@@ -237,8 +237,6 @@ def validate_collaboration(state: dict, high_risk: bool) -> None:
     writes = any(record["action"] == "workspace-write" for record in state["authorization_context"]["planned_actions"])
     if writes and writer is None:
         fail("WRITER_REQUIRED")
-    if writes and state["task_assessment"]["difficulty"] != "small" and writer == "main":
-        fail("DELEGATED_WRITER_REQUIRED")
     review = require_object(collaboration["independent_review"], "INDEPENDENT_REVIEW")
     if set(review) != {"status", "reviewer_id", "evidence"} or require_string(review["status"], "INDEPENDENT_REVIEW_STATUS") not in {"pending", "passed", "failed", "not-applicable"}:
         fail("INDEPENDENT_REVIEW_FIELDS_INVALID")
