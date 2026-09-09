@@ -197,9 +197,15 @@ def v5_authorization_scenarios() -> None:
             state["collaboration"].update(writer="dev-1", dispatches=[agent("dev-1", "developer")])
             return state
 
+        for difficulty in ("normal", "complex"):
+            state = fresh_state()
+            state["task_assessment"]["difficulty"] = difficulty
+            expect_case(f"{difficulty} implementation may stay with main", state, 0, "PROTOCOL_RESULT=PASS")
+        state["collaboration"]["dispatches"] = [agent("dev-1", "developer")]
+        expect_case("main and delegated writer cannot write together", state, 1, "SINGLE_WRITER_REQUIRED")
         state = fresh_state()
-        state["task_assessment"]["difficulty"] = "normal"
-        expect_case("ordinary feature uses one executor", state, 1, "DELEGATED_WRITER_REQUIRED")
+        state["collaboration"]["writer"] = None
+        expect_case("direct implementation still needs an owner", state, 1, "WRITER_REQUIRED")
         expect_case("one observed executor is valid", delegated_state(), 0, "PROTOCOL_RESULT=PASS")
         state = delegated_state()
         state["collaboration"]["dispatches"].append(agent("dev-2", "developer"))
@@ -445,7 +451,7 @@ def main() -> int:
         state["write_scope"]["discovered_paths"] = [{"path": "shared", "reason": "当前阻塞", "business_goal": "验证协议", "discovered_at": "2026-09-03T00:00:00Z", "authorization_card_version": "1", "source_kind": "current-blocker", "source_id": "blocker", "causal_evidence": "失败由共享入口造成"}]
         check("PROTOCOL_RESULT=PASS" in verify_v4(state), "current blocker can authorize path")
     fence = chr(96) * 3
-    protocol_document = (ROOT / "references" / "executable-protocol.md").read_text(encoding="utf-8")
+    protocol_document = (ROOT / "references" / "v5-state-example.md").read_text(encoding="utf-8")
     document_example = re.search(rf"{fence}json\n(.*?)\n{fence}", protocol_document, re.DOTALL)
     check(document_example is not None, "document state example")
     with tempfile.TemporaryDirectory() as directory:

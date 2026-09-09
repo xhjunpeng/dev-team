@@ -56,6 +56,8 @@ required = [
     "references/project-discovery.md",
     "references/engineering-quality.md",
     "references/executable-protocol.md",
+    "references/v5-state-example.md",
+    "references/legacy-authorization.md",
     "references/specialist-routing.md",
     "references/git-lifecycle.md",
     "references/candidate-ledger.md",
