@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -34,8 +35,8 @@ CHECK_STATUSES = {"pending", "passed", "failed", "not-applicable"}
 BASELINE_STATUSES = {"passed", "failed", "not-applicable", "unknown"}
 TASK_ID = re.compile(r"[a-z0-9][a-z0-9-]{2,63}\Z")
 GIT_SHA = re.compile(r"[0-9a-f]{40}\Z")
-CURRENT_PROTOCOL_VERSION = 5
-SUPPORTED_PROTOCOL_VERSIONS = {2, 3, 4, 5}
+CURRENT_PROTOCOL_VERSION = 6
+SUPPORTED_PROTOCOL_VERSIONS = {2, 3, 4, 5, 6}
 DELIVERY_EVIDENCE_PROTOCOL_VERSIONS = {3, 4, 5}
 FROZEN_SCOPE_PROTOCOL_VERSIONS = {4, 5}
 IGNORED_UNTRACKED_POLICY = "excluded"
@@ -787,7 +788,216 @@ def validate_baseline(state: dict, repo: Path, check_worktree: bool) -> str:
     return baseline
 
 
+def v6_paths(value: object) -> list[str]:
+    paths = require_list(value, "WRITE_SCOPE", allow_empty=True)
+    for path in paths:
+        validate_relative_path(path)
+        if path == "." or Path(path).as_posix() != path or any(c in path for c in "*?\\\n\r"):
+            fail("ACTION_TARGET_NOT_EXACT")
+    if len(set(paths)) != len(paths):
+        fail("DUPLICATE_SCOPE")
+    return paths
+
+
+def covers(parent: str, child: str) -> bool:
+    return child == parent or child.startswith(parent + "/")
+
+
+def v6_changes(state: dict, repo: Path, state_path: Path) -> set[str]:
+    paths = current_changes(repo, state_path, state["candidate"]["baseline"])
+    for args in (("diff", "--cached", "--name-only", "-z", state["candidate"]["baseline"]), ("diff", "--name-only", "-z")):
+        paths.update(git_paths(("git", "-C", str(repo), *args)))
+    return {path for path in paths if (repo / path).absolute() != state_path.absolute()}
+
+
+def v6_fingerprint(state: dict, repo: Path, state_path: Path) -> str:
+    """Bind review to content and exact upcoming external actions, not a summary."""
+    digest = hashlib.sha256()
+    digest.update(json.dumps({key: state.get(key) for key in ("candidate", "goal", "authorization", "write_scope", "risk", "impact", "rollback", "actions", "writers")}, sort_keys=True).encode())
+    digest.update(json.dumps([check["command"] for check in state["checks"]]).encode())
+    digest.update(subprocess.check_output(("git", "-C", str(repo), "rev-parse", "HEAD")))
+    for args in (("diff", "--cached", "--binary", state["candidate"]["baseline"]), ("diff", "--binary")):
+        digest.update(subprocess.check_output(("git", "-C", str(repo), *args)))
+    for path in sorted(v6_changes(state, repo, state_path)):
+        digest.update(path.encode() + b"\0")
+        file = repo / path
+        if file.is_symlink():
+            digest.update(b"link:" + os.readlink(file).encode())
+        elif file.is_file():
+            digest.update(str(file.stat().st_mode).encode() + file.read_bytes())
+        else:
+            digest.update(b"deleted")
+    return digest.hexdigest()
+
+
+def v6_safe_cleanup(action: dict, repo: Path, live: bool) -> bool:
+    proof = require_object(action.get("safe_cleanup"), "SAFE_CLEANUP")
+    if set(proof) != {"merged_into", "unused_evidence"}:
+        fail("SAFE_CLEANUP_FIELDS_INVALID")
+    merged_into = require_string(proof["merged_into"], "MERGED_INTO")
+    require_string(proof["unused_evidence"], "UNUSED_EVIDENCE")
+    target = action["target"]
+    if not live:
+        return True
+    base = subprocess.check_output(("git", "-C", str(repo), "rev-parse", "--verify", "--end-of-options", merged_into + "^{commit}")).decode().strip()
+    if action["action"] == "branch-delete":
+        ref = "refs/heads/" + target
+        run = subprocess.run(("git", "check-ref-format", ref), capture_output=True)
+        if run.returncode:
+            fail("CLEANUP_BRANCH_INVALID")
+        head = subprocess.check_output(("git", "-C", str(repo), "rev-parse", "--verify", ref)).decode().strip()
+        worktrees = subprocess.check_output(("git", "-C", str(repo), "worktree", "list", "--porcelain")).decode()
+        if "branch " + ref in worktrees.splitlines():
+            fail("CLEANUP_BRANCH_IN_USE")
+    else:
+        directory = Path(target)
+        if not directory.is_absolute() or directory.resolve() == repo.resolve():
+            fail("CLEANUP_WORKTREE_INVALID")
+        worktrees = subprocess.check_output(("git", "-C", str(repo), "worktree", "list", "--porcelain")).decode().splitlines()
+        if "worktree " + str(directory.resolve()) not in worktrees:
+            fail("CLEANUP_WORKTREE_INVALID")
+        # Include ignored files: clean status alone does not prove nothing will be lost.
+        if subprocess.check_output(("git", "-C", target, "status", "--porcelain", "--untracked-files=all", "--ignored")):
+            fail("CLEANUP_WORKTREE_DIRTY")
+        head = subprocess.check_output(("git", "-C", target, "rev-parse", "HEAD")).decode().strip()
+    if subprocess.run(("git", "-C", str(repo), "merge-base", "--is-ancestor", head, base), capture_output=True).returncode:
+        fail("CLEANUP_UNMERGED")
+    return True
+
+
+def validate_v6(state: dict, repo: Path, state_path: Path, state_dir: Path, live: bool) -> None:
+    required = {"protocol_version", "task_id", "skill_root", "candidate", "goal", "authorization", "write_scope", "risk", "status", "checks"}
+    optional = {"actions", "writers", "review", "blockers", "failures", "next_attempt", "impact", "rollback"}
+    if not required <= set(state) or set(state) - required - optional:
+        fail("STATE_FIELDS_INVALID")
+    if not TASK_ID.fullmatch(require_string(state["task_id"], "TASK_ID")):
+        fail("TASK_ID_INVALID")
+    require_string(state["skill_root"], "SKILL_ROOT")
+    require_string(state["goal"], "GOAL")
+    require_string(state["authorization"], "AUTHORIZATION")
+    if state["risk"] not in {"reversible", "high-risk"} or state["status"] not in {"active", "completed", "blocked"}:
+        fail("TASK_STATE_INVALID")
+    candidate = require_object(state["candidate"], "CANDIDATE")
+    if set(candidate) != {"branch", "worktree", "baseline"}:
+        fail("CANDIDATE_FIELDS_INVALID")
+    require_string(candidate["branch"], "BRANCH")
+    if not Path(require_string(candidate["worktree"], "WORKTREE")).is_absolute():
+        fail("WORKTREE_NOT_ABSOLUTE")
+    if not GIT_SHA.fullmatch(require_string(candidate["baseline"], "BASELINE")):
+        fail("GIT_BASELINE_INVALID")
+    if live:
+        if state_path.parent != state_dir or state_path.name != state["task_id"] + ".json":
+            fail("STATE_LOCATION_INVALID")
+        if Path(candidate["worktree"]).resolve() != repo.resolve():
+            fail("WORKTREE_MISMATCH")
+        branch = subprocess.check_output(("git", "-C", str(repo), "branch", "--show-current")).decode().strip()
+        if branch != candidate["branch"]:
+            fail("BRANCH_MISMATCH")
+        if subprocess.run(("git", "-C", str(repo), "merge-base", "--is-ancestor", candidate["baseline"], "HEAD"), capture_output=True).returncode:
+            fail("BASELINE_NOT_CANDIDATE_ANCESTOR")
+    scope = v6_paths(state["write_scope"])
+    if live:
+        outside = [p for p in v6_changes(state, repo, state_path) if not any(covers(root, p) for root in scope)]
+        if outside:
+            fail("DIFF_OUTSIDE_AUTHORIZED_TARGETS: " + ", ".join(sorted(outside)))
+    owners = {}
+    for writer in require_list(state.get("writers", []), "WRITERS", allow_empty=True):
+        writer = require_object(writer, "WRITER")
+        if set(writer) != {"id", "paths"}:
+            fail("WRITER_FIELDS_INVALID")
+        identifier = require_string(writer["id"], "WRITER_ID")
+        if identifier in owners:
+            fail("DUPLICATE_WRITER")
+        paths = v6_paths(writer["paths"])
+        if not paths or any(not any(covers(root, path) for root in scope) for path in paths):
+            fail("WRITER_OUTSIDE_SCOPE")
+        if any(covers(a, b) or covers(b, a) for paths2 in owners.values() for a in paths2 for b in paths):
+            fail("OVERLAPPING_WRITERS")
+        owners[identifier] = paths
+    high_risk = state["risk"] == "high-risk"
+    if high_risk:
+        require_string(state.get("impact"), "IMPACT")
+        require_string(state.get("rollback"), "ROLLBACK")
+    external = False
+    seen = set()
+    for action in require_list(state.get("actions", []), "ACTIONS", allow_empty=True):
+        action = require_object(action, "ACTION")
+        if not {"action", "target", "authorization"} <= set(action) or set(action) - {"action", "target", "authorization", "impact", "rollback", "safe_cleanup"}:
+            fail("ACTION_FIELDS_INVALID")
+        kind = action["action"]
+        if kind not in ACTION_KINDS - {"workspace-write", "recovery-repair", "recovery-diagnosis"}:
+            fail("ACTION_KIND_INVALID")
+        target = require_string(action["target"], "ACTION_TARGET")
+        if any(c in target for c in "*?\n\r") or (kind, target) in seen:
+            fail("ACTION_TARGET_NOT_EXACT")
+        seen.add((kind, target))
+        require_string(action["authorization"], "ACTION_AUTHORIZATION")
+        if state["status"] == "blocked" and kind not in READ_ACTIONS:
+            fail("BLOCKED_CANDIDATE_CANNOT_EXECUTE")
+        risky = kind in HIGH_RISK_ACTIONS
+        if "safe_cleanup" in action:
+            if kind not in {"branch-delete", "worktree-delete"}:
+                fail("SAFE_CLEANUP_ACTION_INVALID")
+            risky = not v6_safe_cleanup(action, repo, live)
+        if risky or (state["risk"] == "high-risk" and kind not in READ_ACTIONS):
+            require_string(action.get("impact"), "IMPACT")
+            require_string(action.get("rollback"), "ROLLBACK")
+        high_risk |= risky
+        external |= risky and kind in REVIEW_BEFORE_EXECUTION
+    review = state.get("review")
+    if review is not None:
+        review = require_object(review, "REVIEW")
+        if set(review) != {"reviewer", "evidence", "fingerprint"}:
+            fail("REVIEW_FIELDS_INVALID")
+        reviewer = require_string(review["reviewer"], "REVIEWER")
+        if reviewer in owners or reviewer == "main":
+            fail("INDEPENDENT_REVIEWER_REQUIRED")
+        require_string(review["evidence"], "REVIEW_EVIDENCE")
+        if not re.fullmatch(r"[0-9a-f]{64}", require_string(review["fingerprint"], "FINGERPRINT")):
+            fail("REVIEW_FINGERPRINT_INVALID")
+        if live and review["fingerprint"] != v6_fingerprint(state, repo, state_path):
+            fail("REVIEW_STALE")
+    if (external or (high_risk and state["status"] == "completed")) and review is None:
+        fail("INDEPENDENT_REVIEW_INCOMPLETE")
+    checks = require_list(state["checks"], "CHECKS")
+    for check in checks:
+        check = require_object(check, "CHECK")
+        if set(check) != {"command", "status", "evidence"} or check["status"] not in {"pending", "passed", "failed"}:
+            fail("CHECK_INVALID")
+        require_string(check["command"], "CHECK_COMMAND")
+        if check["status"] != "pending":
+            require_string(check["evidence"], "CHECK_EVIDENCE")
+    blockers = require_list(state.get("blockers", []), "BLOCKERS", allow_empty=True)
+    for blocker in blockers:
+        require_string(blocker, "BLOCKER")
+    if blockers and state["status"] == "active":
+        fail("OPEN_BLOCKER_PREVENTS_WRITE")
+    if (external or state["status"] == "completed") and (blockers or any(c["status"] != "passed" for c in checks)):
+        fail("DELIVERY_INCOMPLETE")
+    failures = require_list(state.get("failures", []), "FAILURES", allow_empty=True)
+    hypotheses = set()
+    for failure in failures:
+        failure = require_object(failure, "FAILURE")
+        if set(failure) != {"hypothesis", "evidence"}:
+            fail("FAILURE_FIELDS_INVALID")
+        hypothesis = require_string(failure["hypothesis"], "HYPOTHESIS")
+        require_string(failure["evidence"], "FAILURE_EVIDENCE")
+        if hypothesis in hypotheses:
+            fail("REPEATED_FAILED_HYPOTHESIS")
+        hypotheses.add(hypothesis)
+    if state["status"] == "active" and failures:
+        attempt = require_object(state.get("next_attempt"), "NEXT_ATTEMPT")
+        if set(attempt) != {"hypothesis", "new_evidence"}:
+            fail("NEXT_ATTEMPT_FIELDS_INVALID")
+        if require_string(attempt["hypothesis"], "HYPOTHESIS") in hypotheses:
+            fail("REPEATED_FAILED_HYPOTHESIS")
+        require_string(attempt["new_evidence"], "NEW_EVIDENCE")
+
+
 def validate(state: dict, repo: Path, state_path: Path, state_dir: Path, check_diff: bool, check_worktree: bool, check_location: bool) -> None:
+    if state.get("protocol_version") == 6:
+        validate_v6(state, repo, state_path, state_dir, check_diff)
+        return
     base_required = {"protocol_version", "migration", "task_id", "lifecycle", "skill_root", "git_baseline", "ignored_untracked_policy", "primary_branch", "authorization_card", "candidate", "failure_identity", "production_failure_count", "failure_records", "recovery", "write_scope"}
     protocol_version = state.get("protocol_version")
     if protocol_version not in SUPPORTED_PROTOCOL_VERSIONS:
@@ -853,6 +1063,7 @@ def main() -> int:
     parser.add_argument("--state-dir", type=Path)
     parser.add_argument("--skill-root", type=Path)
     parser.add_argument("--structure-only", action="store_true")
+    parser.add_argument("--fingerprint", action="store_true", help="Print v6 review content fingerprint without granting approval")
     parser.add_argument("--migrate-v1-state", action="store_true")
     args = parser.parse_args()
     try:
@@ -873,6 +1084,11 @@ def main() -> int:
             args.state.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         if not args.structure_only and Path(require_string(state.get("skill_root"), "SKILL_ROOT")).resolve() != args.skill_root.resolve():
             fail("STATE_SKILL_ROOT_MISMATCH")
+        if args.fingerprint:
+            if args.structure_only or state.get("protocol_version") != 6:
+                fail("FINGERPRINT_REQUIRES_LIVE_V6")
+            print(v6_fingerprint(state, repo, args.state.resolve()))
+            return 0
         validate(require_object(state, "STATE"), repo, args.state.resolve(), state_dir.resolve(), not args.structure_only, not args.structure_only, not args.structure_only)
     except (OSError, subprocess.CalledProcessError, json.JSONDecodeError, ValueError) as error:
         print(f"PROTOCOL_INVALID: {error}", file=sys.stderr)

@@ -57,6 +57,9 @@ required = [
     "references/engineering-quality.md",
     "references/executable-protocol.md",
     "references/v5-state-example.md",
+    "references/legacy-protocol.md",
+    "references/legacy-recovery.md",
+    "tests/test_v6.py",
     "references/legacy-authorization.md",
     "references/specialist-routing.md",
     "references/git-lifecycle.md",
@@ -138,5 +141,9 @@ for label, root in verification_roots:
     )
     if result.returncode != 0 or "PROTOCOL_SCENARIOS=PASS" not in result.stdout:
         raise SystemExit(f"{label}_PROTOCOL_TEST_FAILED: {result.stderr.strip() or result.stdout.strip()}")
+for label, root in verification_roots:
+    result = subprocess.run((sys.executable, str(root / "tests/test_v6.py")), text=True, capture_output=True, env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
+    if result.returncode:
+        raise SystemExit(f"{label}_V6_TEST_FAILED: {result.stderr or result.stdout}")
 print("VERIFY_RESULT=PASS")
 PY
