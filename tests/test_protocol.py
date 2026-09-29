@@ -189,7 +189,7 @@ def v5_authorization_scenarios() -> None:
         expect_case("difficulty does not override read-only impact", state, 1, "READ_ONLY_CANNOT_WRITE")
 
         def agent(identifier: str, role: str) -> dict:
-            return {"id": identifier, "role": role, "model": "gpt-6-luna" if role == "explorer" else "gpt-6-sol", "effort": "high", "permission": "workspace-write" if role in {"developer", "ui-maker"} else "read-only", "observation": "测试夹具中的请求回执，不声称真实模型已运行", "override": {"reason": "旧任务改用当前角色配置", "authorization_card_version": "1", "authorization_evidence": "用户指定角色模型和强度"}}
+            return {"id": identifier, "role": role, "model": "gpt-6-luna" if role == "explorer" else "gpt-6.1-sol", "effort": "high", "permission": "workspace-write" if role in {"developer", "ui-maker"} else "read-only", "observation": "测试夹具中的请求回执，不声称真实模型已运行", "override": {"reason": "旧任务改用当前角色配置", "authorization_card_version": "1", "authorization_evidence": "用户指定角色模型和强度"}}
 
         def delegated_state() -> dict:
             state = fresh_state()
@@ -222,9 +222,24 @@ def v5_authorization_scenarios() -> None:
         state["collaboration"]["dispatches"][0]["override"]["authorization_card_version"] = "0"
         expect_case("stale model override is rejected", state, 1, "MODEL_OVERRIDE_AUTHORIZATION_STALE")
         state = delegated_state()
-        expect_case("legacy task can dispatch GPT-6 Sol high", state, 0, "PROTOCOL_RESULT=PASS")
+        expect_case("legacy task can dispatch GPT-6.1 Sol high", state, 0, "PROTOCOL_RESULT=PASS")
         state["collaboration"]["dispatches"][0]["effort"] = "medium"
         expect_case("active legacy task requires the role effort", state, 1, "ACTIVE_DISPATCH_ROLE_CONFIG_MISMATCH")
+        for role in ("developer", "ui-maker", "reviewer"):
+            state = delegated_state()
+            dispatch = agent("current-role", role)
+            state["collaboration"].update(writer=None if role == "reviewer" else "current-role", dispatches=[dispatch])
+            if role == "reviewer":
+                state["authorization_context"]["planned_actions"] = [{"action": "verify", "target": "allowed"}]
+                state["authorization_context"]["granted_actions"].append({"action": "verify", "target": "allowed"})
+            expect_case(f"{role} can dispatch GPT-6.1 Sol high", state, 0, "PROTOCOL_RESULT=PASS")
+            dispatch["model"] = "gpt-6-sol"
+            expect_case(f"active {role} cannot keep previous Sol", state, 1, "ACTIVE_DISPATCH_ROLE_CONFIG_MISMATCH")
+            state["candidate"]["state"] = "已收口"
+            expect_case(f"closed {role} with new actions cannot keep previous Sol", state, 1, "ACTIVE_DISPATCH_ROLE_CONFIG_MISMATCH")
+            state["candidate"]["state"] = "开发中"
+            state["authorization_context"]["planned_actions"] = []
+            expect_case(f"historical {role} Sol record stays readable", state, 0, "PROTOCOL_RESULT=PASS")
         state = delegated_state()
         state["collaboration"]["dispatches"][0].update(model="gpt-6-astra", effort="high")
         del state["collaboration"]["dispatches"][0]["override"]
@@ -941,7 +956,7 @@ def main() -> int:
 
             template = source / "templates/agents/team-developer.toml"
             original = template.read_text(encoding="utf-8")
-            template.write_text(original.replace('model = "gpt-6-sol"', 'model = "gpt-5.6-terra"'), encoding="utf-8")
+            template.write_text(original.replace('model = "gpt-6.1-sol"', 'model = "gpt-5.6-terra"'), encoding="utf-8")
             check("AGENT_CONFIG_MISMATCH" in setup_result("--source-only"), "setup catches stale model default")
             template.write_text(original, encoding="utf-8")
             explorer_template = source / "templates/agents/team-explorer.toml"

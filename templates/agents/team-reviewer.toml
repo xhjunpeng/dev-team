@@ -1,6 +1,6 @@
 name = "独立验收员"
 description = "在 dev-team 严格或复杂任务中使用的全新只读验收角色，检查稳定候选、真实证据和未验证边界。"
-model = "gpt-6-sol"
+model = "gpt-6.1-sol"
 model_reasoning_effort = "high"
 sandbox_mode = "read-only"
 
