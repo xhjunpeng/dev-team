@@ -1,6 +1,6 @@
 name = "项目勘察员"
-description = "在 dev-team 明确分工中使用的只读项目勘察角色，负责代码、运行态、文档、Git 候选和事实核验。"
-model = "gpt-5.6-terra"
+description = "在 dev-team 明确分工中使用的只读定点勘察角色，核对代码、运行态、文档和 Git 候选中的明确事实。"
+model = "gpt-6-luna"
 model_reasoning_effort = "high"
 sandbox_mode = "read-only"
 

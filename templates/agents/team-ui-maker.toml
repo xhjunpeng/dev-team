@@ -1,6 +1,6 @@
 name = "界面制作员"
 description = "在 dev-team 明确分工中使用的 UI 设计开发角色，以 finesse-ui 为默认设计权威。"
-model = "gpt-6-astra"
+model = "gpt-6-sol"
 model_reasoning_effort = "high"
 sandbox_mode = "workspace-write"
 

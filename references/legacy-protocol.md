@@ -25,7 +25,7 @@
 
 ## 协作与例外
 
-`collaboration.writer` 为 main、当前执行员 ID 或 null；`dispatches` 仅记录当前有效派发，包含 id、role、model、effort、permission 与工具请求/回执摘要 observation。role 为 developer/ui-maker/reviewer/explorer，默认模型与权限见 ROLE_MODELS。只读角色不能改为可写；普通功能允许 main 或一个执行员写入，不能同时存在多个写入者。结束旧执行员后才更新当前派发；历史回执留在交接证据中，不新建一套任务状态。
+`collaboration.writer` 为 main、当前执行员 ID 或 null；`dispatches` 仅记录当前有效派发，包含 id、role、model、effort、permission 与工具请求/回执摘要 observation。role 为 developer/ui-maker/reviewer/explorer，旧记录的默认模型与权限见 LEGACY_ROLE_MODELS。历史记录可保留旧模型；未收口任务准备执行 `planned_actions` 时，当前派单须匹配 ROLE_MODELS 中对应角色的 GPT-6 模型与思考强度，旧默认值须先改为有授权依据的覆盖。只读角色不能改为可写；普通功能允许 main 或一个执行员写入，不能同时存在多个写入者。结束旧执行员后才更新当前派发；历史回执留在交接证据中，不新建一套任务状态。
 
 模型/档位覆盖时增加 override，包含 reason、authorization_card_version、authorization_evidence；必须符合当前授权并经工具能力核验，不能用自报模型名证明真实运行。模型策略详见 [model-policy.md](model-policy.md)。
 

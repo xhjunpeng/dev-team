@@ -142,6 +142,25 @@ class ProtocolTests(unittest.TestCase):
         self.state['actions'][0]['target'] = 'prod/other-service'
         self.run_gate('REVIEW_STALE')
 
+    def test_merge_uses_candidate_risk_and_requires_checks(self):
+        self.state['actions'] = [dict(action='merge', target='feature->main', authorization='合并当前候选')]
+        self.run_gate('MERGE_RISK_EVIDENCE')
+        self.state['actions'][0]['risk_evidence'] = dict(diff='本次 diff 未触及高风险内容')
+        self.run_gate('MERGE_RISK_EVIDENCE_FIELDS_INVALID')
+        self.state['actions'][0]['risk_evidence']['target_branch'] = '已核对 main 的保护规则'
+        self.run_gate('DELIVERY_INCOMPLETE')
+        self.state['checks'][0].update(status='passed', evidence='合并前检查通过')
+        self.run_gate()
+        self.state['actions'][0]['risk_evidence']['target_branch'] = ''
+        self.run_gate('MERGE_TARGET_BRANCH_EVIDENCE')
+        del self.state['actions'][0]['risk_evidence']
+        self.state.update(risk='high-risk', impact='主分支权限变化', rollback='建立反向提交')
+        self.run_gate('IMPACT')
+        self.state['actions'][0].update(impact='主分支权限变化', rollback='建立反向提交')
+        self.run_gate('INDEPENDENT_REVIEW_INCOMPLETE')
+        self.review()
+        self.run_gate()
+
     def test_blocked_task(self):
         self.state['blockers'] = ['范围待决定']
         self.run_gate('OPEN_BLOCKER_PREVENTS_WRITE')
@@ -180,6 +199,8 @@ class ProtocolTests(unittest.TestCase):
         self.state['actions'][0]['authorization'] = '明确请求'
         self.state['actions'][0]['action'] = 'workspace-write'
         self.run_gate('ACTION_KIND_INVALID')
+        self.state['actions'][0].update(action='push', target='origin:main', risk_evidence=dict(diff='不适用', target_branch='main'))
+        self.run_gate('MERGE_RISK_EVIDENCE_NOT_APPLICABLE')
 
 if __name__ == '__main__':
     unittest.main()
