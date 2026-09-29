@@ -41,6 +41,13 @@ DELIVERY_EVIDENCE_PROTOCOL_VERSIONS = {3, 4, 5}
 FROZEN_SCOPE_PROTOCOL_VERSIONS = {4, 5}
 IGNORED_UNTRACKED_POLICY = "excluded"
 ROLE_MODELS = {
+    "developer": ("gpt-6-sol", "high", "workspace-write"),
+    "ui-maker": ("gpt-6-sol", "high", "workspace-write"),
+    "reviewer": ("gpt-6-sol", "high", "read-only"),
+    "explorer": ("gpt-6-luna", "high", "read-only"),
+}
+CURRENT_GPT6_MODELS = {"gpt-6-astra", "gpt-6-sol", "gpt-6-luna"}
+LEGACY_ROLE_MODELS = {
     "developer": ("gpt-6-astra", "high", "workspace-write"),
     "ui-maker": ("gpt-6-astra", "high", "workspace-write"),
     "reviewer": ("gpt-6-astra", "high", "read-only"),
@@ -207,6 +214,7 @@ def validate_collaboration(state: dict, high_risk: bool) -> None:
     if writer is not None:
         require_string(writer, "WRITER")
     dispatches = require_list(collaboration["dispatches"], "DISPATCHES", allow_empty=True)
+    active_dispatch = bool(state["authorization_context"]["planned_actions"])
     agents = {}
     for dispatch in dispatches:
         dispatch = require_object(dispatch, "DISPATCH")
@@ -217,9 +225,14 @@ def validate_collaboration(state: dict, high_risk: bool) -> None:
         if identifier in agents or identifier == "main":
             fail("DISPATCH_ID_DUPLICATE")
         role = require_string(dispatch["role"], "DISPATCH_ROLE")
-        if role not in ROLE_MODELS or dispatch["permission"] != ROLE_MODELS[role][2]:
+        if role not in LEGACY_ROLE_MODELS or dispatch["permission"] != LEGACY_ROLE_MODELS[role][2]:
             fail("DISPATCH_MODEL_OR_PERMISSION_MISMATCH")
-        if (dispatch["model"], dispatch["effort"]) != ROLE_MODELS[role][:2]:
+        model = require_string(dispatch["model"], "DISPATCH_MODEL")
+        if active_dispatch and model not in CURRENT_GPT6_MODELS:
+            fail("ACTIVE_DISPATCH_REQUIRES_GPT6")
+        if active_dispatch and (model, dispatch["effort"]) != ROLE_MODELS[role][:2]:
+            fail("ACTIVE_DISPATCH_ROLE_CONFIG_MISMATCH")
+        if (dispatch["model"], dispatch["effort"]) != LEGACY_ROLE_MODELS[role][:2]:
             override = require_object(dispatch.get("override"), "MODEL_OVERRIDE")
             if set(override) != {"reason", "authorization_card_version", "authorization_evidence"}:
                 fail("MODEL_OVERRIDE_FIELDS_INVALID")
@@ -227,7 +240,6 @@ def validate_collaboration(state: dict, high_risk: bool) -> None:
                 require_string(override[field], "MODEL_OVERRIDE_" + field.upper())
             if override["authorization_card_version"] != state["authorization_card"]["version"]:
                 fail("MODEL_OVERRIDE_AUTHORIZATION_STALE")
-            require_string(dispatch["model"], "DISPATCH_MODEL")
             if require_string(dispatch["effort"], "DISPATCH_EFFORT") not in {"low", "medium", "high", "xhigh", "max", "ultra"}:
                 fail("DISPATCH_EFFORT_INVALID")
         require_string(dispatch["observation"], "DISPATCH_OBSERVATION")
@@ -919,10 +931,11 @@ def validate_v6(state: dict, repo: Path, state_path: Path, state_dir: Path, live
         require_string(state.get("impact"), "IMPACT")
         require_string(state.get("rollback"), "ROLLBACK")
     external = False
+    merge_planned = False
     seen = set()
     for action in require_list(state.get("actions", []), "ACTIONS", allow_empty=True):
         action = require_object(action, "ACTION")
-        if not {"action", "target", "authorization"} <= set(action) or set(action) - {"action", "target", "authorization", "impact", "rollback", "safe_cleanup"}:
+        if not {"action", "target", "authorization"} <= set(action) or set(action) - {"action", "target", "authorization", "impact", "rollback", "safe_cleanup", "risk_evidence"}:
             fail("ACTION_FIELDS_INVALID")
         kind = action["action"]
         if kind not in ACTION_KINDS - {"workspace-write", "recovery-repair", "recovery-diagnosis"}:
@@ -934,7 +947,17 @@ def validate_v6(state: dict, repo: Path, state_path: Path, state_dir: Path, live
         require_string(action["authorization"], "ACTION_AUTHORIZATION")
         if state["status"] == "blocked" and kind not in READ_ACTIONS:
             fail("BLOCKED_CANDIDATE_CANNOT_EXECUTE")
-        risky = kind in HIGH_RISK_ACTIONS
+        if kind == "merge" and state["risk"] == "reversible":
+            evidence = require_object(action.get("risk_evidence"), "MERGE_RISK_EVIDENCE")
+            if set(evidence) != {"diff", "target_branch"}:
+                fail("MERGE_RISK_EVIDENCE_FIELDS_INVALID")
+            require_string(evidence["diff"], "MERGE_DIFF_EVIDENCE")
+            require_string(evidence["target_branch"], "MERGE_TARGET_BRANCH_EVIDENCE")
+        elif "risk_evidence" in action:
+            fail("MERGE_RISK_EVIDENCE_NOT_APPLICABLE")
+        # An ordinary merge follows the candidate's risk; legacy protocols keep
+        # their original fixed merge classification.
+        risky = kind in HIGH_RISK_ACTIONS and (kind != "merge" or state["risk"] == "high-risk")
         if "safe_cleanup" in action:
             if kind not in {"branch-delete", "worktree-delete"}:
                 fail("SAFE_CLEANUP_ACTION_INVALID")
@@ -944,6 +967,7 @@ def validate_v6(state: dict, repo: Path, state_path: Path, state_dir: Path, live
             require_string(action.get("rollback"), "ROLLBACK")
         high_risk |= risky
         external |= risky and kind in REVIEW_BEFORE_EXECUTION
+        merge_planned |= kind == "merge"
     review = state.get("review")
     if review is not None:
         review = require_object(review, "REVIEW")
@@ -972,7 +996,7 @@ def validate_v6(state: dict, repo: Path, state_path: Path, state_dir: Path, live
         require_string(blocker, "BLOCKER")
     if blockers and state["status"] == "active":
         fail("OPEN_BLOCKER_PREVENTS_WRITE")
-    if (external or state["status"] == "completed") and (blockers or any(c["status"] != "passed" for c in checks)):
+    if (external or merge_planned or state["status"] == "completed") and (blockers or any(c["status"] != "passed" for c in checks)):
         fail("DELIVERY_INCOMPLETE")
     failures = require_list(state.get("failures", []), "FAILURES", allow_empty=True)
     hypotheses = set()

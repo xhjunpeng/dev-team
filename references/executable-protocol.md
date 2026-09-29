@@ -28,7 +28,7 @@ risk 为 reversible 或 high-risk；status 为 active、blocked 或 completed。
 ## 按需字段
 
 - `writers`：并行时列出 `{"id":"执行者标识","paths":["src/module"]}`，包含主任务自己的写入职责。同一文件及父子目录不得分给不同写入者。共享接口由主任务保证职责不冲突，路径不重叠不能证明业务独立。
-- `actions`：只列即将执行的 Git 或外部动作，保存 `action`、准确 `target`、`authorization`；高风险动作另带 `impact`、`rollback`。动作名沿用脚本 ACTION_KINDS，workspace-write 与 recovery 动作不在 v6 actions 中：源码范围由 write_scope 管理，恢复按证据推进。用户聊天是授权来源，记录无法证明真实同意。完成动作从即将执行列表移到已有证据，不复制两套授权数组。
+- `actions`：只列即将执行的 Git 或外部动作，保存 `action`、准确 `target`、`authorization`；高风险动作另带 `impact`、`rollback`。动作名沿用脚本 ACTION_KINDS，workspace-write 与 recovery 动作不在 v6 actions 中：源码范围由 write_scope 管理，恢复按证据推进。已有 v6 记录中的普通合并按 `reversible` 核对授权及全部必要检查，并在该动作的 `risk_evidence` 中填写 `diff` 与 `target_branch`：前者指向真实变更及不涉及高风险内容的依据，后者指向目标分支和保护规则的核对结果。高风险合并按 `high-risk` 增加影响、回滚和执行前独立验收。校验器只检查这些文字非空，主任务仍须核对原始事实。用户聊天是授权来源，记录无法证明真实同意。完成动作从即将执行列表移到已有证据，不复制两套授权数组。
 - `review`：`reviewer`、`evidence`、`fingerprint`。验收者必须不同于所有写入者且只读，主任务核对真实身份、权限和工具证据。高风险交付、合并、部署等外部高风险执行前必须完成必要检查且通过独立验收；权限代码可先实现再验收。指纹绑定代码内容、候选、范围、风险、授权及动作对象，变化后需重新验收受影响部分。
 - `blockers`：当前阻塞的文字列表。新增范围未决也属于阻塞；有阻塞时 status 为 blocked，暂停受影响写入，不用“已完成”绕过。
 - `failures` 与 `next_attempt`：实际失败后才添加。前者为 `{"hypothesis":"已证伪假设","evidence":"原始结果"}` 列表；继续时后者记录不同的 hypothesis 与 new_evidence。没有按次数停止，也不清除历史；语义上重复的假设由主任务核对。

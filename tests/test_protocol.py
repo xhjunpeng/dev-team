@@ -189,7 +189,7 @@ def v5_authorization_scenarios() -> None:
         expect_case("difficulty does not override read-only impact", state, 1, "READ_ONLY_CANNOT_WRITE")
 
         def agent(identifier: str, role: str) -> dict:
-            return {"id": identifier, "role": role, "model": "gpt-5.6-terra" if role == "explorer" else "gpt-6-astra", "effort": "high", "permission": "workspace-write" if role in {"developer", "ui-maker"} else "read-only", "observation": "测试夹具中的请求回执，不声称真实模型已运行"}
+            return {"id": identifier, "role": role, "model": "gpt-6-luna" if role == "explorer" else "gpt-6-sol", "effort": "high", "permission": "workspace-write" if role in {"developer", "ui-maker"} else "read-only", "observation": "测试夹具中的请求回执，不声称真实模型已运行", "override": {"reason": "旧任务改用当前角色配置", "authorization_card_version": "1", "authorization_evidence": "用户指定角色模型和强度"}}
 
         def delegated_state() -> dict:
             state = fresh_state()
@@ -213,17 +213,39 @@ def v5_authorization_scenarios() -> None:
         state["collaboration"].update(writer="dev-2", dispatches=[agent("dev-2", "developer")])
         expect_case("completed writer can hand off current ownership", state, 0, "PROTOCOL_RESULT=PASS")
         state = delegated_state()
+        state["authorization_context"]["planned_actions"] = []
         state["collaboration"]["dispatches"][0]["effort"] = "xhigh"
+        del state["collaboration"]["dispatches"][0]["override"]
         expect_case("model override needs an explicit basis", state, 1, "MODEL_OVERRIDE_MUST_BE_OBJECT")
         state["collaboration"]["dispatches"][0]["override"] = {"reason": "复杂状态提高思考强度", "authorization_card_version": "1", "authorization_evidence": "主任务核对当前授权和工具支持的 xhigh"}
         expect_case("authorized xhigh is not blocked by defaults", state, 0, "PROTOCOL_RESULT=PASS")
         state["collaboration"]["dispatches"][0]["override"]["authorization_card_version"] = "0"
         expect_case("stale model override is rejected", state, 1, "MODEL_OVERRIDE_AUTHORIZATION_STALE")
         state = delegated_state()
+        expect_case("legacy task can dispatch GPT-6 Sol high", state, 0, "PROTOCOL_RESULT=PASS")
+        state["collaboration"]["dispatches"][0]["effort"] = "medium"
+        expect_case("active legacy task requires the role effort", state, 1, "ACTIVE_DISPATCH_ROLE_CONFIG_MISMATCH")
+        state = delegated_state()
+        state["collaboration"]["dispatches"][0].update(model="gpt-6-astra", effort="high")
+        del state["collaboration"]["dispatches"][0]["override"]
+        expect_case("active legacy task cannot keep old Astra role", state, 1, "ACTIVE_DISPATCH_ROLE_CONFIG_MISMATCH")
+        state["authorization_context"]["planned_actions"] = []
+        expect_case("historical Astra record stays readable", state, 0, "PROTOCOL_RESULT=PASS")
+        state = delegated_state()
         explorer = agent("explorer-1", "explorer")
-        explorer.update(model="gpt-6-astra", override={"reason": "复杂勘察", "authorization_card_version": "1", "authorization_evidence": "当前允许升级，工具能力已核对"})
+        explorer["model"] = "gpt-5.6-terra"
+        del explorer["override"]
         state["collaboration"]["dispatches"].append(explorer)
-        expect_case("exploration can use a supported stronger model", state, 0, "PROTOCOL_RESULT=PASS")
+        expect_case("active legacy task cannot dispatch Terra", state, 1, "ACTIVE_DISPATCH_REQUIRES_GPT6")
+        state["candidate"]["state"] = "已收口"
+        expect_case("closed legacy task with new actions cannot dispatch Terra", state, 1, "ACTIVE_DISPATCH_REQUIRES_GPT6")
+        state["candidate"]["state"] = "开发中"
+        state["authorization_context"]["planned_actions"] = []
+        expect_case("historical Terra record stays readable", state, 0, "PROTOCOL_RESULT=PASS")
+        state = delegated_state()
+        explorer = agent("explorer-1", "explorer")
+        state["collaboration"]["dispatches"].append(explorer)
+        expect_case("legacy task can dispatch GPT-6 Luna", state, 0, "PROTOCOL_RESULT=PASS")
         explorer["permission"] = "workspace-write"
         expect_case("model override cannot widen read-only role", state, 1, "DISPATCH_MODEL_OR_PERMISSION_MISMATCH")
 
@@ -902,11 +924,31 @@ def main() -> int:
             def setup_result(*arguments: str) -> str:
                 return run("bash", str(source / "scripts/verify-setup.sh"), *arguments, expected=1)
 
+            skill = source / "SKILL.md"
+            original_skill = skill.read_text(encoding="utf-8")
+            description = re.search(r"^description:.*$", original_skill, re.MULTILINE)
+            check(description is not None, "description test fixture")
+            skill.write_text(original_skill[:description.start()] + "description: 手动触发开发协作，按风险安排执行和验收。" + original_skill[description.end():], encoding="utf-8")
+            check("VERIFY_RESULT=PASS" in run("bash", str(source / "scripts/verify-setup.sh"), "--source-only"), "description wording is flexible")
+            skill.write_text(original_skill[:description.start()] + "description:   " + original_skill[description.end():], encoding="utf-8")
+            check("SKILL_FRONTMATTER_MISMATCH" in setup_result("--source-only"), "empty description is rejected")
+            skill.write_text(original_skill[:description.start()] + 'description: ""' + original_skill[description.end():], encoding="utf-8")
+            check("SKILL_FRONTMATTER_MISMATCH" in setup_result("--source-only"), "quoted empty description is rejected")
+            for quoted_whitespace in ('"   "', "'   '"):
+                skill.write_text(original_skill[:description.start()] + 'description: ' + quoted_whitespace + original_skill[description.end():], encoding="utf-8")
+                check("SKILL_FRONTMATTER_MISMATCH" in setup_result("--source-only"), "quoted whitespace description is rejected")
+            skill.write_text(original_skill, encoding="utf-8")
+
             template = source / "templates/agents/team-developer.toml"
             original = template.read_text(encoding="utf-8")
-            template.write_text(original.replace('model = "gpt-6-astra"', 'model = "gpt-5.6-terra"'), encoding="utf-8")
+            template.write_text(original.replace('model = "gpt-6-sol"', 'model = "gpt-5.6-terra"'), encoding="utf-8")
             check("AGENT_CONFIG_MISMATCH" in setup_result("--source-only"), "setup catches stale model default")
             template.write_text(original, encoding="utf-8")
+            explorer_template = source / "templates/agents/team-explorer.toml"
+            explorer_original = explorer_template.read_text(encoding="utf-8")
+            explorer_template.write_text(explorer_original.replace('model = "gpt-6-luna"', 'model = "gpt-5.6-terra"'), encoding="utf-8")
+            check("AGENT_CONFIG_MISMATCH" in setup_result("--source-only"), "setup rejects old explorer model")
+            explorer_template.write_text(explorer_original, encoding="utf-8")
             reviewer = source / "templates/agents/team-reviewer.toml"
             original = reviewer.read_text(encoding="utf-8")
             reviewer.write_text(original.replace('sandbox_mode = "read-only"', 'sandbox_mode = "workspace-write"'), encoding="utf-8")
@@ -915,7 +957,6 @@ def main() -> int:
             installed = agents / "team-developer.toml"
             installed.write_text(installed.read_text(encoding="utf-8") + "\n# stale installed instructions\n", encoding="utf-8")
             check("AGENT_COPY_DIFFERS" in setup_result(str(agents), str(runtime)), "same model does not hide stale installed instructions")
-            skill = source / "SKILL.md"
             skill.write_text(skill.read_text(encoding="utf-8") + "\n[missing reference](references/not-present.md)\n", encoding="utf-8")
             check("REFERENCE_MISSING" in setup_result("--source-only"), "setup checks local reference resolution")
         with tempfile.TemporaryDirectory() as directory:

@@ -39,12 +39,15 @@ for line in frontmatter_match.group(1).splitlines():
         raise SystemExit(f"SKILL_FRONTMATTER_DUPLICATE: {key}")
     frontmatter[key] = value.strip()
 
-expected_frontmatter = {
-    "name": "dev-team",
-    "description": "手动调用的通用开发协作路由器；按任务风险选择最小团队，协调开发、UI、验证、Git 候选和安全收口。",
-    "disable-model-invocation": "true",
-}
-if frontmatter != expected_frontmatter:
+description = frontmatter.get("description", "")
+description_content = description
+if len(description) >= 2 and description[0] == description[-1] and description[0] in {"'", '"'}:
+    description_content = description[1:-1]
+if (set(frontmatter) != {"name", "description", "disable-model-invocation"}
+        or frontmatter["name"] != "dev-team"
+        or not description_content.strip()
+        or description in {"", '""', "''", "~", "null", "Null", "NULL"}
+        or frontmatter["disable-model-invocation"] != "true"):
     raise SystemExit(f"SKILL_FRONTMATTER_MISMATCH: {frontmatter!r}")
 if not source_only and runtime_skill_dir.name != frontmatter["name"]:
     raise SystemExit("RUNTIME_SKILL_DIRECTORY_NAME_MISMATCH")

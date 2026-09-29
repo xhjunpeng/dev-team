@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # 通用开发协作
 
-按任务需要增加协作与检查。主任务保留用户选择的模型，自主决定实现方法；项目与全局规则已覆盖的事项执行一次。
+按任务需要增加协作与检查。新任务只使用 GPT-6，主任务保留用户选择的 GPT-6 模型并自主决定实现方法；项目与全局规则已覆盖的事项执行一次。
 
 ## 选择路径
 
@@ -17,11 +17,11 @@ disable-model-invocation: true
 
 ## 必要时读取
 
-- 候选准备、Git 或清理：[Git 生命周期](references/git-lifecycle.md)。写入前判断同任务续做、独立任务或归属不明；同目标复用，独立目标另建候选，有并发或无关改动时用独立 worktree。
+- 候选准备、Git 或清理：[Git 生命周期](references/git-lifecycle.md)。按适用全局“项目文件与任务归属”规则处理候选与会话对应；具体 Git 边界见该文档。
 - 项目或运行事实不清：[项目发现](references/project-discovery.md)。
 - 实现与验证：[工程质量](references/engineering-quality.md)；UI：[UI 路由](references/ui-routing.md)。
 - 故障反复失败：[诊断与恢复](references/recovery.md)。
-- 需要专业方法：[专项选择](references/specialist-routing.md)；实际派单再读 [模型策略](references/model-policy.md)。
+- 需要专业方法：[专项选择](references/specialist-routing.md)；实际派单再读 [GPT-6 模型策略](references/model-policy.md)。
 
 ## 完成
 
