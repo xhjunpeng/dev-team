@@ -41,12 +41,12 @@ DELIVERY_EVIDENCE_PROTOCOL_VERSIONS = {3, 4, 5}
 FROZEN_SCOPE_PROTOCOL_VERSIONS = {4, 5}
 IGNORED_UNTRACKED_POLICY = "excluded"
 ROLE_MODELS = {
-    "developer": ("gpt-6-sol", "high", "workspace-write"),
-    "ui-maker": ("gpt-6-sol", "high", "workspace-write"),
-    "reviewer": ("gpt-6-sol", "high", "read-only"),
+    "developer": ("gpt-6.1-sol", "high", "workspace-write"),
+    "ui-maker": ("gpt-6.1-sol", "high", "workspace-write"),
+    "reviewer": ("gpt-6.1-sol", "high", "read-only"),
     "explorer": ("gpt-6-luna", "high", "read-only"),
 }
-CURRENT_GPT6_MODELS = {"gpt-6-astra", "gpt-6-sol", "gpt-6-luna"}
+CURRENT_GPT6_MODELS = {"gpt-6-astra", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna"}
 LEGACY_ROLE_MODELS = {
     "developer": ("gpt-6-astra", "high", "workspace-write"),
     "ui-maker": ("gpt-6-astra", "high", "workspace-write"),
