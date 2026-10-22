@@ -1,0 +1,11 @@
+时间：2026-10-22T11:41:34.684410+08:00
+目录：/Users/jumper/.codex/worktrees/chang-renwu-xiezuo/dev-team/validation/long-task-drill/fixture
+命令：/opt/homebrew/opt/python@3.14/bin/python3.14 -B export_orders.py fixtures/orders.json
+退出码：0
+
+STDOUT
+id,customer,amount,currency
+A001,虚构客户甲,12.00,CNY
+C003,虚构客户丙,8.50,CNY
+
+STDERR

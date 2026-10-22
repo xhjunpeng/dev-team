@@ -10,6 +10,7 @@ import os
 import re
 import subprocess
 import sys
+import tomllib
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -40,13 +41,18 @@ SUPPORTED_PROTOCOL_VERSIONS = {2, 3, 4, 5, 6}
 DELIVERY_EVIDENCE_PROTOCOL_VERSIONS = {3, 4, 5}
 FROZEN_SCOPE_PROTOCOL_VERSIONS = {4, 5}
 IGNORED_UNTRACKED_POLICY = "excluded"
-ROLE_MODELS = {
-    "developer": ("gpt-6.1-sol", "high", "workspace-write"),
-    "ui-maker": ("gpt-6.1-sol", "high", "workspace-write"),
-    "reviewer": ("gpt-6.1-sol", "high", "read-only"),
-    "explorer": ("gpt-6-luna", "high", "read-only"),
+ROLE_FILES = {
+    "developer": ("team-developer.toml", "开发执行员", "workspace-write"),
+    "ui-maker": ("team-ui-maker.toml", "界面制作员", "workspace-write"),
+    "reviewer": ("team-reviewer.toml", "独立验收员", "read-only"),
+    "explorer": ("team-explorer.toml", "项目勘察员", "read-only"),
 }
 CURRENT_GPT6_MODELS = {"gpt-6-astra", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna"}
+GPT6_EFFORTS = {
+    model: {"low", "medium", "high", "xhigh", "max", "ultra"}
+    for model in CURRENT_GPT6_MODELS
+}
+GPT6_EFFORTS["gpt-6-luna"].remove("ultra")
 LEGACY_ROLE_MODELS = {
     "developer": ("gpt-6-astra", "high", "workspace-write"),
     "ui-maker": ("gpt-6-astra", "high", "workspace-write"),
@@ -86,6 +92,29 @@ def require_list(value: object, label: str, allow_empty: bool = False) -> list:
     if not isinstance(value, list) or (not allow_empty and not value):
         fail(f"{label}_MUST_BE_{'LIST' if allow_empty else 'NONEMPTY_LIST'}")
     return value
+
+
+def read_role_config(path: Path, role: str) -> tuple[str, str, str]:
+    """Read deployable defaults while keeping capability and permission guards independent."""
+    if not path.is_file():
+        fail(f"AGENT_MISSING: {path}")
+    data = tomllib.loads(path.read_text(encoding="utf-8"))
+    _, name, permission = ROLE_FILES[role]
+    model, effort = data.get("model"), data.get("model_reasoning_effort")
+    actual = (model, effort, data.get("sandbox_mode"))
+    if (data.get("name") != name or not isinstance(model, str) or model not in GPT6_EFFORTS
+            or not isinstance(effort, str) or effort not in GPT6_EFFORTS[model]
+            or data.get("sandbox_mode") != permission):
+        fail(f"AGENT_CONFIG_MISMATCH: {path}: {actual!r}")
+    if not isinstance(data.get("developer_instructions"), str) or not data["developer_instructions"].strip():
+        fail(f"AGENT_INSTRUCTIONS_EMPTY: {path}")
+    return actual
+
+
+ROLE_MODELS = {
+    role: read_role_config(Path(__file__).resolve().parents[1] / "templates/agents" / filename, role)
+    for role, (filename, _, _) in ROLE_FILES.items()
+}
 
 
 def validate_card(card: dict, protocol_version: int = 4) -> None:

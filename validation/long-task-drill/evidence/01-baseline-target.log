@@ -1,0 +1,75 @@
+时间：2026-10-22T11:35:09.357603+08:00
+目录：/Users/jumper/.codex/worktrees/chang-renwu-xiezuo/dev-team/validation/long-task-drill/fixture
+命令：/opt/homebrew/opt/python@3.14/bin/python3.14 -B -m unittest discover -s tests -p test_target.py -v
+退出码：1
+
+STDOUT
+
+STDERR
+test_latest_cancelled_record_removes_earlier_paid_version (test_target.TargetTests.test_latest_cancelled_record_removes_earlier_paid_version) ... FAIL
+test_latest_record_across_pages_is_exported_once (test_target.TargetTests.test_latest_record_across_pages_is_exported_once) ... FAIL
+test_newer_version_does_not_move_first_seen_order (test_target.TargetTests.test_newer_version_does_not_move_first_seen_order) ... FAIL
+
+======================================================================
+FAIL: test_latest_cancelled_record_removes_earlier_paid_version (test_target.TargetTests.test_latest_cancelled_record_removes_earlier_paid_version)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jumper/.codex/worktrees/chang-renwu-xiezuo/dev-team/validation/long-task-drill/fixture/tests/test_target.py", line 17, in test_latest_cancelled_record_removes_earlier_paid_version
+    self.assertEqual(select_orders(pages), [])
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Lists differ: [{'id': 'B002', 'customer': '测试客户', 'amoun[88 chars]00'}] != []
+
+First list contains 1 additional elements.
+First extra element 0:
+{'id': 'B002', 'customer': '测试客户', 'amount': '10.00', 'currency': 'CNY', 'status': 'paid', 'updated_at': '2026-10-22T10:00:00+08:00'}
+
++ []
+- [{'amount': '10.00',
+-   'currency': 'CNY',
+-   'customer': '测试客户',
+-   'id': 'B002',
+-   'status': 'paid',
+-   'updated_at': '2026-10-22T10:00:00+08:00'}]
+
+======================================================================
+FAIL: test_latest_record_across_pages_is_exported_once (test_target.TargetTests.test_latest_record_across_pages_is_exported_once)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jumper/.codex/worktrees/chang-renwu-xiezuo/dev-team/validation/long-task-drill/fixture/tests/test_target.py", line 13, in test_latest_record_across_pages_is_exported_once
+    self.assertEqual([(row["id"], row["amount"]) for row in select_orders(pages)], [("A001", "12.00")])
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Lists differ: [('A001', '10.00'), ('A001', '12.00')] != [('A001', '12.00')]
+
+First differing element 0:
+('A001', '10.00')
+('A001', '12.00')
+
+First list contains 1 additional elements.
+First extra element 1:
+('A001', '12.00')
+
+- [('A001', '10.00'), ('A001', '12.00')]
++ [('A001', '12.00')]
+
+======================================================================
+FAIL: test_newer_version_does_not_move_first_seen_order (test_target.TargetTests.test_newer_version_does_not_move_first_seen_order)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jumper/.codex/worktrees/chang-renwu-xiezuo/dev-team/validation/long-task-drill/fixture/tests/test_target.py", line 21, in test_newer_version_does_not_move_first_seen_order
+    self.assertEqual([(row["id"], row["amount"]) for row in select_orders(pages)], [("A001", "12.00"), ("C003", "10.00")])
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Lists differ: [('A001', '12.00'), ('C003', '10.00'), ('A001', '10.00')] != [('A001', '12.00'), ('C003', '10.00')]
+
+First list contains 1 additional elements.
+First extra element 2:
+('A001', '10.00')
+
+- [('A001', '12.00'), ('C003', '10.00'), ('A001', '10.00')]
+?                             -------------------
+
++ [('A001', '12.00'), ('C003', '10.00')]
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.001s
+
+FAILED (failures=3)

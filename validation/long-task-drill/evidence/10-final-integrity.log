@@ -1,0 +1,9 @@
+时间：2026-10-22T11:49:29.475165+08:00
+protected-files.sha256: PASS (38 files)
+runtime-config-baseline.sha256: PASS (4 files)
+final-fixture.sha256: PASS (4 files)
+runtime skill link: PASS (unchanged)
+Git HEAD/branch/index: PASS (unchanged)
+new files: PASS (only validation/long-task-drill/)
+Python caches: PASS (none)
+git diff --check: PASS

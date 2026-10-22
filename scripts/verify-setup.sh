@@ -18,7 +18,6 @@ import os
 import re
 import subprocess
 import sys
-import tomllib
 
 skill_dir = Path(sys.argv[1])
 agent_dir = Path(sys.argv[2])
@@ -106,24 +105,19 @@ for label, root in verification_roots:
 
 # Validate package contracts and execute behavior tests; prose is reviewed by agents.
 import runpy
-protocol = runpy.run_path(str(skill_dir / "scripts/verify-protocol.py"))
-role_files = {
-    "team-explorer.toml": ("项目勘察员", "explorer"),
-    "team-developer.toml": ("开发执行员", "developer"),
-    "team-ui-maker.toml": ("界面制作员", "ui-maker"),
-    "team-reviewer.toml": ("独立验收员", "reviewer"),
-}
-for filename, (name, role) in role_files.items():
+try:
+    protocol = runpy.run_path(str(skill_dir / "scripts/verify-protocol.py"))
+except (OSError, ValueError) as error:
+    raise SystemExit(str(error))
+for role, (filename, _, _) in protocol["ROLE_FILES"].items():
     template = skill_dir / "templates/agents" / filename
     for path in ((template,) if source_only else (template, agent_dir / filename)):
-        if not path.is_file():
-            raise SystemExit(f"AGENT_MISSING: {path}")
-        data = tomllib.loads(path.read_text(encoding="utf-8"))
-        actual = (data.get("model"), data.get("model_reasoning_effort"), data.get("sandbox_mode"))
-        if data.get("name") != name or actual != protocol["ROLE_MODELS"][role]:
+        try:
+            actual = protocol["read_role_config"](path, role)
+        except (OSError, ValueError) as error:
+            raise SystemExit(str(error))
+        if actual != protocol["ROLE_MODELS"][role]:
             raise SystemExit(f"AGENT_CONFIG_MISMATCH: {path}: {actual!r}")
-        if not isinstance(data.get("developer_instructions"), str) or not data["developer_instructions"].strip():
-            raise SystemExit(f"AGENT_INSTRUCTIONS_EMPTY: {path}")
     if not source_only and not filecmp.cmp(template, agent_dir / filename, shallow=False):
         raise SystemExit(f"AGENT_COPY_DIFFERS: {filename}")
 

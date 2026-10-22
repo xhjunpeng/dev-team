@@ -1,0 +1,23 @@
+时间：2026-10-22T11:41:34.644948+08:00
+目录：/Users/jumper/.codex/worktrees/chang-renwu-xiezuo/dev-team/validation/long-task-drill/fixture
+命令：/opt/homebrew/opt/python@3.14/bin/python3.14 -B -m unittest discover -s tests -v
+退出码：0
+
+STDOUT
+
+STDERR
+test_actual_time_across_timezones (test_regression.RegressionTests.test_actual_time_across_timezones) ... ok
+test_cli_exports_final_order_state (test_regression.RegressionTests.test_cli_exports_final_order_state) ... ok
+test_csv_round_trip_handles_special_characters (test_regression.RegressionTests.test_csv_round_trip_handles_special_characters) ... ok
+test_empty_result_preserves_header (test_regression.RegressionTests.test_empty_result_preserves_header) ... ok
+test_equal_timestamp_keeps_last_encountered (test_regression.RegressionTests.test_equal_timestamp_keeps_last_encountered) ... ok
+test_input_remains_unchanged (test_regression.RegressionTests.test_input_remains_unchanged) ... ok
+test_single_page_without_duplicates (test_regression.RegressionTests.test_single_page_without_duplicates) ... ok
+test_latest_cancelled_record_removes_earlier_paid_version (test_target.TargetTests.test_latest_cancelled_record_removes_earlier_paid_version) ... ok
+test_latest_record_across_pages_is_exported_once (test_target.TargetTests.test_latest_record_across_pages_is_exported_once) ... ok
+test_newer_version_does_not_move_first_seen_order (test_target.TargetTests.test_newer_version_does_not_move_first_seen_order) ... ok
+
+----------------------------------------------------------------------
+Ran 10 tests in 0.041s
+
+OK

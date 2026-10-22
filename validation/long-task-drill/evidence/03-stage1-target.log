@@ -1,0 +1,16 @@
+时间：2026-10-22T11:37:46.362189+08:00
+目录：/Users/jumper/.codex/worktrees/chang-renwu-xiezuo/dev-team/validation/long-task-drill/fixture
+命令：/opt/homebrew/opt/python@3.14/bin/python3.14 -B -m unittest discover -s tests -p test_target.py -v
+退出码：0
+
+STDOUT
+
+STDERR
+test_latest_cancelled_record_removes_earlier_paid_version (test_target.TargetTests.test_latest_cancelled_record_removes_earlier_paid_version) ... ok
+test_latest_record_across_pages_is_exported_once (test_target.TargetTests.test_latest_record_across_pages_is_exported_once) ... ok
+test_newer_version_does_not_move_first_seen_order (test_target.TargetTests.test_newer_version_does_not_move_first_seen_order) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.000s
+
+OK
