@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import runpy
 import shutil
 import subprocess
 import sys
@@ -15,6 +16,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 VERIFY = ROOT / "scripts" / "verify-protocol.py"
+ROLE_MODELS = runpy.run_path(str(VERIFY))["ROLE_MODELS"]
 FIXTURES = ROOT / "tests" / "fixtures" / "protocol"
 NO_BYTECODE = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
 
@@ -189,7 +191,8 @@ def v5_authorization_scenarios() -> None:
         expect_case("difficulty does not override read-only impact", state, 1, "READ_ONLY_CANNOT_WRITE")
 
         def agent(identifier: str, role: str) -> dict:
-            return {"id": identifier, "role": role, "model": "gpt-6-luna" if role == "explorer" else "gpt-6.1-sol", "effort": "high", "permission": "workspace-write" if role in {"developer", "ui-maker"} else "read-only", "observation": "测试夹具中的请求回执，不声称真实模型已运行", "override": {"reason": "旧任务改用当前角色配置", "authorization_card_version": "1", "authorization_evidence": "用户指定角色模型和强度"}}
+            model, effort, permission = ROLE_MODELS[role]
+            return {"id": identifier, "role": role, "model": model, "effort": effort, "permission": permission, "observation": "测试夹具中的请求回执，不声称真实模型已运行", "override": {"reason": "旧任务改用当前角色配置", "authorization_card_version": "1", "authorization_evidence": "用户指定角色模型和强度"}}
 
         def delegated_state() -> dict:
             state = fresh_state()
@@ -222,8 +225,8 @@ def v5_authorization_scenarios() -> None:
         state["collaboration"]["dispatches"][0]["override"]["authorization_card_version"] = "0"
         expect_case("stale model override is rejected", state, 1, "MODEL_OVERRIDE_AUTHORIZATION_STALE")
         state = delegated_state()
-        expect_case("legacy task can dispatch GPT-6.1 Sol high", state, 0, "PROTOCOL_RESULT=PASS")
-        state["collaboration"]["dispatches"][0]["effort"] = "medium"
+        expect_case("legacy task can dispatch the current developer configuration", state, 0, "PROTOCOL_RESULT=PASS")
+        state["collaboration"]["dispatches"][0]["effort"] = "medium" if ROLE_MODELS["developer"][1] != "medium" else "high"
         expect_case("active legacy task requires the role effort", state, 1, "ACTIVE_DISPATCH_ROLE_CONFIG_MISMATCH")
         for role in ("developer", "ui-maker", "reviewer"):
             state = delegated_state()
@@ -232,8 +235,15 @@ def v5_authorization_scenarios() -> None:
             if role == "reviewer":
                 state["authorization_context"]["planned_actions"] = [{"action": "verify", "target": "allowed"}]
                 state["authorization_context"]["granted_actions"].append({"action": "verify", "target": "allowed"})
-            expect_case(f"{role} can dispatch GPT-6.1 Sol high", state, 0, "PROTOCOL_RESULT=PASS")
-            dispatch["model"] = "gpt-6-sol"
+            expect_case(f"{role} can dispatch configured model and effort", state, 0, "PROTOCOL_RESULT=PASS")
+            if role == "reviewer":
+                dispatch["effort"] = "high" if ROLE_MODELS[role][1] != "high" else "xhigh"
+                expect_case("active reviewer cannot use stale effort", state, 1, "ACTIVE_DISPATCH_ROLE_CONFIG_MISMATCH")
+                state["authorization_context"]["planned_actions"] = []
+                expect_case("historical reviewer effort stays readable", state, 0, "PROTOCOL_RESULT=PASS")
+                state["authorization_context"]["planned_actions"] = [{"action": "verify", "target": "allowed"}]
+                dispatch["effort"] = ROLE_MODELS[role][1]
+            dispatch["model"] = "gpt-6-sol" if ROLE_MODELS[role][0] != "gpt-6-sol" else "gpt-6-astra"
             expect_case(f"active {role} cannot keep previous Sol", state, 1, "ACTIVE_DISPATCH_ROLE_CONFIG_MISMATCH")
             state["candidate"]["state"] = "已收口"
             expect_case(f"closed {role} with new actions cannot keep previous Sol", state, 1, "ACTIVE_DISPATCH_ROLE_CONFIG_MISMATCH")
@@ -243,7 +253,8 @@ def v5_authorization_scenarios() -> None:
         state = delegated_state()
         state["collaboration"]["dispatches"][0].update(model="gpt-6-astra", effort="high")
         del state["collaboration"]["dispatches"][0]["override"]
-        expect_case("active legacy task cannot keep old Astra role", state, 1, "ACTIVE_DISPATCH_ROLE_CONFIG_MISMATCH")
+        deployed_legacy_model = ROLE_MODELS["developer"][:2] == ("gpt-6-astra", "high")
+        expect_case("active legacy task must match the deployed role", state, 0 if deployed_legacy_model else 1, "PROTOCOL_RESULT=PASS" if deployed_legacy_model else "ACTIVE_DISPATCH_ROLE_CONFIG_MISMATCH")
         state["authorization_context"]["planned_actions"] = []
         expect_case("historical Astra record stays readable", state, 0, "PROTOCOL_RESULT=PASS")
         state = delegated_state()
@@ -956,19 +967,64 @@ def main() -> int:
 
             template = source / "templates/agents/team-developer.toml"
             original = template.read_text(encoding="utf-8")
-            template.write_text(original.replace('model = "gpt-6.1-sol"', 'model = "gpt-5.6-terra"'), encoding="utf-8")
+            template.write_text(re.sub(r'^model = ".*"$', 'model = "gpt-5.6-terra"', original, flags=re.MULTILINE), encoding="utf-8")
             check("AGENT_CONFIG_MISMATCH" in setup_result("--source-only"), "setup catches stale model default")
+            template.write_text(original, encoding="utf-8")
+            for model in ("unknown-model", "gpt-6-imaginary"):
+                template.write_text(re.sub(r'^model = ".*"$', f'model = "{model}"', original, flags=re.MULTILINE), encoding="utf-8")
+                check("AGENT_CONFIG_MISMATCH" in setup_result("--source-only"), "unknown source model cannot become an allowed default")
+            for effort in ("none", "minimal", "unsupported"):
+                template.write_text(re.sub(r'^model_reasoning_effort = ".*"$', f'model_reasoning_effort = "{effort}"', original, flags=re.MULTILINE), encoding="utf-8")
+                check("AGENT_CONFIG_MISMATCH" in setup_result("--source-only"), "unsupported source effort is rejected")
+            template.write_text(re.sub(r'developer_instructions = """.*?"""', 'developer_instructions = """   """', original, flags=re.DOTALL), encoding="utf-8")
+            check("AGENT_INSTRUCTIONS_EMPTY" in setup_result("--source-only"), "source instructions must remain nonempty")
             template.write_text(original, encoding="utf-8")
             explorer_template = source / "templates/agents/team-explorer.toml"
             explorer_original = explorer_template.read_text(encoding="utf-8")
-            explorer_template.write_text(explorer_original.replace('model = "gpt-6-luna"', 'model = "gpt-5.6-terra"'), encoding="utf-8")
+            explorer_template.write_text(re.sub(r'^model = ".*"$', 'model = "gpt-5.6-terra"', explorer_original, flags=re.MULTILINE), encoding="utf-8")
             check("AGENT_CONFIG_MISMATCH" in setup_result("--source-only"), "setup rejects old explorer model")
+            luna_config = re.sub(r'^model = ".*"$', 'model = "gpt-6-luna"', explorer_original, flags=re.MULTILINE)
+            explorer_template.write_text(re.sub(r'^model_reasoning_effort = ".*"$', 'model_reasoning_effort = "ultra"', luna_config, flags=re.MULTILINE), encoding="utf-8")
+            check("AGENT_CONFIG_MISMATCH" in setup_result("--source-only"), "Luna does not support ultra")
             explorer_template.write_text(explorer_original, encoding="utf-8")
             reviewer = source / "templates/agents/team-reviewer.toml"
-            original = reviewer.read_text(encoding="utf-8")
-            reviewer.write_text(original.replace('sandbox_mode = "read-only"', 'sandbox_mode = "workspace-write"'), encoding="utf-8")
+            reviewer_original = reviewer.read_text(encoding="utf-8")
+            reviewer.write_text(reviewer_original.replace('sandbox_mode = "read-only"', 'sandbox_mode = "workspace-write"'), encoding="utf-8")
             check("AGENT_CONFIG_MISMATCH" in setup_result("--source-only"), "setup catches widened reviewer permission")
-            reviewer.write_text(original, encoding="utf-8")
+            reviewer.write_text(reviewer_original, encoding="utf-8")
+            explorer_template.write_text(explorer_original.replace('sandbox_mode = "read-only"', 'sandbox_mode = "workspace-write"'), encoding="utf-8")
+            check("AGENT_CONFIG_MISMATCH" in setup_result("--source-only"), "setup catches widened explorer permission")
+            explorer_template.write_text(explorer_original, encoding="utf-8")
+
+            def source_dispatch(role: str, effort: str, expected: int = 0) -> str:
+                state = json.loads((FIXTURES / "v5-explicit-request-valid.json").read_text(encoding="utf-8"))
+                current = runpy.run_path(str(source / "scripts/verify-protocol.py"))["ROLE_MODELS"][role]
+                action = {"action": "verify", "target": "allowed"}
+                state["authorization_context"].update(granted_actions=[action.copy()], planned_actions=[action.copy()])
+                state["collaboration"].update(writer="role-1" if current[2] == "workspace-write" else None, dispatches=[{
+                    "id": "role-1", "role": role, "model": current[0], "effort": effort, "permission": current[2],
+                    "observation": "测试配置的本地回执，不证明平台实际运行",
+                    "override": {"reason": "按已部署角色配置派单", "authorization_card_version": state["authorization_card"]["version"], "authorization_evidence": "用户同意调整该角色的思考强度"},
+                }])
+                state_path = Path(directory) / "dispatch.json"
+                state_path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+                return run(sys.executable, str(source / "scripts/verify-protocol.py"), "--state", str(state_path), "--structure-only", expected=expected)
+
+            for role, path, contents, previous, upgraded in (("developer", template, original, "high", "xhigh"), ("reviewer", reviewer, reviewer_original, "xhigh", "max")):
+                path.write_text(re.sub(r'^model_reasoning_effort = ".*"$', f'model_reasoning_effort = "{previous}"', contents, flags=re.MULTILINE), encoding="utf-8")
+                check("PROTOCOL_RESULT=PASS" in source_dispatch(role, previous), "active dispatch uses the configured effort before upgrade")
+                path.write_text(re.sub(r'^model_reasoning_effort = ".*"$', f'model_reasoning_effort = "{upgraded}"', contents, flags=re.MULTILINE), encoding="utf-8")
+                check("VERIFY_RESULT=PASS" in run("bash", str(source / "scripts/verify-setup.sh"), "--source-only"), "legal template effort upgrade is deployable")
+                check("PROTOCOL_RESULT=PASS" in source_dispatch(role, upgraded), "active dispatch uses upgraded template effort")
+                check("ACTIVE_DISPATCH_ROLE_CONFIG_MISMATCH" in source_dispatch(role, previous, expected=1), "active dispatch cannot retain the effort from before deployment")
+                path.write_text(contents, encoding="utf-8")
+
+            installed_reviewer = agents / "team-reviewer.toml"
+            installed_original = installed_reviewer.read_text(encoding="utf-8")
+            stale_effort = "high" if ROLE_MODELS["reviewer"][1] != "high" else "xhigh"
+            installed_reviewer.write_text(re.sub(r'^model_reasoning_effort = ".*"$', f'model_reasoning_effort = "{stale_effort}"', installed_original, flags=re.MULTILINE), encoding="utf-8")
+            check("AGENT_CONFIG_MISMATCH" in setup_result(str(agents), str(runtime)), "installed reviewer must match the source effort")
+            installed_reviewer.write_text(installed_original, encoding="utf-8")
             installed = agents / "team-developer.toml"
             installed.write_text(installed.read_text(encoding="utf-8") + "\n# stale installed instructions\n", encoding="utf-8")
             check("AGENT_COPY_DIFFERS" in setup_result(str(agents), str(runtime)), "same model does not hide stale installed instructions")

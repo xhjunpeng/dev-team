@@ -1,0 +1,27 @@
+--- starter_export_orders.py
++++ fixture/export_orders.py
+@@ -1,14 +1,22 @@
+-"""A deliberately faulty starter for a local development drill."""
++"""Export the latest paid order versions for a local development drill."""
+ 
+ import argparse
+ import csv
+ import io
+ import json
++from datetime import datetime
+ from pathlib import Path
+ 
+ 
+ def select_orders(pages):
+-    return [dict(order) for page in pages for order in page if order["status"] == "paid"]
++    latest_by_id = {}
++    for page in pages:
++        for order in page:
++            identifier = order["id"]
++            updated_at = datetime.fromisoformat(order["updated_at"])
++            if identifier not in latest_by_id or updated_at >= latest_by_id[identifier][0]:
++                latest_by_id[identifier] = (updated_at, order)
++    return [dict(order) for _, order in latest_by_id.values() if order["status"] == "paid"]
+ 
+ 
+ def build_csv(pages):

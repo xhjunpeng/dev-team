@@ -1,0 +1,11 @@
+[
+  [
+    {"id": "A001", "customer": "虚构客户甲", "amount": "10.00", "currency": "CNY", "status": "paid", "updated_at": "2026-10-22T10:00:00+08:00"},
+    {"id": "B002", "customer": "虚构客户乙", "amount": "20.00", "currency": "CNY", "status": "paid", "updated_at": "2026-10-22T10:00:00+08:00"},
+    {"id": "C003", "customer": "虚构客户丙", "amount": "8.50", "currency": "CNY", "status": "paid", "updated_at": "2026-10-22T10:00:00+08:00"}
+  ],
+  [
+    {"id": "A001", "customer": "虚构客户甲", "amount": "12.00", "currency": "CNY", "status": "paid", "updated_at": "2026-10-22T11:00:00+08:00"},
+    {"id": "B002", "customer": "虚构客户乙", "amount": "20.00", "currency": "CNY", "status": "cancelled", "updated_at": "2026-10-22T11:00:00+08:00"}
+  ]
+]

@@ -1,0 +1,5 @@
+# Preserve captured CSV and CLI bytes, including their valid CRLF line endings.
+validation/long-task-drill/evidence/06-stage2-cli.log -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+validation/long-task-drill/evidence/actual-export.csv -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+# Unified diff evidence requires the single-space marker on blank context lines.
+validation/long-task-drill/evidence/stage1-source.diff whitespace=-blank-at-eol
