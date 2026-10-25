@@ -961,6 +961,7 @@ def validate_v6(state: dict, repo: Path, state_path: Path, state_dir: Path, live
         require_string(state.get("rollback"), "ROLLBACK")
     external = False
     merge_planned = False
+    execution_planned = False
     seen = set()
     for action in require_list(state.get("actions", []), "ACTIONS", allow_empty=True):
         action = require_object(action, "ACTION")
@@ -973,6 +974,7 @@ def validate_v6(state: dict, repo: Path, state_path: Path, state_dir: Path, live
         if any(c in target for c in "*?\n\r") or (kind, target) in seen:
             fail("ACTION_TARGET_NOT_EXACT")
         seen.add((kind, target))
+        execution_planned |= kind not in READ_ACTIONS
         require_string(action["authorization"], "ACTION_AUTHORIZATION")
         if state["status"] == "blocked" and kind not in READ_ACTIONS:
             fail("BLOCKED_CANDIDATE_CANNOT_EXECUTE")
@@ -1009,7 +1011,11 @@ def validate_v6(state: dict, repo: Path, state_path: Path, state_dir: Path, live
         if not re.fullmatch(r"[0-9a-f]{64}", require_string(review["fingerprint"], "FINGERPRINT")):
             fail("REVIEW_FINGERPRINT_INVALID")
         if live and review["fingerprint"] != v6_fingerprint(state, repo, state_path):
-            fail("REVIEW_STALE")
+            # Keep old evidence during development. It cannot authorize a
+            # delivery or a queued mutation, even when the task is still active.
+            if state["status"] == "completed" or execution_planned:
+                fail("REVIEW_STALE")
+            print("REVIEW_STATUS=stale")
     if (external or (high_risk and state["status"] == "completed")) and review is None:
         fail("INDEPENDENT_REVIEW_INCOMPLETE")
     checks = require_list(state["checks"], "CHECKS")

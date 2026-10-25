@@ -121,6 +121,89 @@ class ProtocolTests(unittest.TestCase):
         target.write_text('reviewed')
         self.run_gate('REVIEW_STALE')
 
+    def test_stale_review_does_not_block_development_or_read_checks(self):
+        self.state.update(risk='high-risk', impact='权限变化', rollback='恢复代码')
+        self.review()
+        previous_review = dict(self.state['review'])
+        (self.repo / 'src/a.txt').write_text('continue development')
+        for actions in [[], [dict(action='verify', target='local checks', authorization='范围内自检')]]:
+            with self.subTest(actions=actions):
+                self.state['actions'] = actions
+                self.assertIn('REVIEW_STATUS=stale', self.run_gate())
+                self.assertEqual(json.loads(self.path.read_text())['review'], previous_review)
+        self.state.update(status='blocked', blockers=['待确认共享依赖'])
+        self.state.pop('actions')
+        self.assertIn('REVIEW_STATUS=stale', self.run_gate())
+
+    def test_stale_review_still_blocks_completion_and_write_actions(self):
+        self.review()
+        (self.repo / 'src/a.txt').write_text('changed after review')
+        self.complete()
+        self.run_gate('REVIEW_STALE')
+        self.state['status'] = 'active'
+        for kind in ['commit', 'push', 'merge', 'force-push', 'deploy', 'data-migration',
+                     'schema-migration', 'production-write', 'payment', 'secret-change']:
+            with self.subTest(action=kind):
+                action = dict(action=kind, target='exact-target', authorization='测试中的明确授权',
+                              impact='测试候选变化', rollback='恢复测试候选')
+                if kind == 'merge':
+                    action['risk_evidence'] = dict(diff='局部普通功能变更', target_branch='main 无额外保护')
+                self.state['actions'] = [action]
+                self.run_gate('REVIEW_STALE')
+
+    def test_review_can_be_renewed_without_resetting_unaffected_check(self):
+        self.state.update(risk='high-risk', impact='权限变化', rollback='恢复代码')
+        shared = self.repo / 'src/shared.py'
+        shared.write_text("def can_read(role):\n    return role == 'admin'\n")
+        (self.repo / 'src/access.py').write_text('from shared import can_read\n')
+
+        def observe(expected=0):
+            result = subprocess.run(
+                (sys.executable, '-c', "from access import can_read\n"
+                 "if not can_read('admin') or can_read('viewer'):\n"
+                 "    raise SystemExit('access behavior failed')\n"
+                 "print('access behavior passed')\n"),
+                cwd=self.repo / 'src', text=True, capture_output=True,
+                env={**os.environ, 'PYTHONDONTWRITEBYTECODE': '1'})
+            self.assertEqual(result.returncode, expected, result.stderr)
+            return result.stdout.strip()
+
+        self.complete()
+        self.state['checks'][0].update(command='观察 access 对 admin/viewer 的读取权限', evidence=observe())
+        old_check = dict(self.state['checks'][0])
+        self.review()
+        old_fingerprint = self.state['review']['fingerprint']
+        (self.repo / 'src/b.txt').write_text('independent module')
+        self.state['status'] = 'active'
+        self.assertIn('REVIEW_STATUS=stale', self.run_gate())
+        self.state['status'] = 'completed'
+        self.run_gate('REVIEW_STALE')
+        self.review()
+        self.state['review']['evidence'] = '已核对 B 与 A 无依赖，沿用 A 原始检查证据并检查 B'
+        self.assertNotEqual(self.state['review']['fingerprint'], old_fingerprint)
+        self.assertEqual(self.state['checks'][0], old_check)
+        self.run_gate()
+
+        shared.write_text('def can_read(role):\n    return True\n')
+        self.run_gate('REVIEW_STALE')
+        observe(expected=1)
+        self.state['checks'][0].update(status='pending', evidence=None)
+        self.review()
+        self.run_gate('DELIVERY_INCOMPLETE')
+        shared.write_text("def can_read(role):\n    return role == 'admin'\n")
+        self.state['checks'][0].update(status='passed', evidence=observe())
+        self.review()
+        self.run_gate()
+
+    def test_development_still_rejects_invalid_review_identity_and_fields(self):
+        self.review()
+        (self.repo / 'src/a.txt').write_text('continue development')
+        self.state['review']['reviewer'] = 'main'
+        self.run_gate('INDEPENDENT_REVIEWER_REQUIRED')
+        self.state['review']['reviewer'] = 'independent'
+        self.state['review']['fingerprint'] = 'invalid'
+        self.run_gate('REVIEW_FINGERPRINT_INVALID')
+
     def test_action_order_does_not_change_requirements(self):
         self.state["checks"][0].update(status="passed", evidence="验证完成")
         commit = dict(action='commit', target='main', authorization='提交当前候选')
